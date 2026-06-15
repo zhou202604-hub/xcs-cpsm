@@ -1,0 +1,18 @@
+/* 前端基础样式（移动 + PC 共用） — 移动端主要依赖 style.css 里的样式，管理后台用 admin.css。这里放一些 logo-icon、form-msg、link-btn等工具类，确保两个页面都能正常呈现 */
+
+/* ---------- Logo 图标 ---------- */
+.logo-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: linear-gradient(135deg, #1890ff, #096dd9);
+    color: #fff;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+/* ---------- 移动端列表页（沿用已有 style.css，这里仅增加企业微信用户标识 ---------- */

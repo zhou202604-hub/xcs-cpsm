@@ -1,106 +1,52 @@
 namespace Kingdee.MaterialAPI.Models;
 
 /// <summary>
-/// 物料信息模型
+/// 物料信息（前端要展示的字段集合）
+/// 字段对应规则：见管理后台的"字段映射"——每一行的 FieldKey 匹配到本类的属性（大小写不敏感）
 /// </summary>
 public class Material
 {
-    public string Id { get; set; } = string.Empty;
+    /// <summary>金蝶物料主键（FMATERIALID）</summary>
+    public string MaterialId { get; set; } = "";
 
-    /// <summary>
-    /// 物料名称
-    /// </summary>
-    public string MaterialName { get; set; } = string.Empty;
+    /// <summary>物料编号（FNUMBER）</summary>
+    public string Number { get; set; } = "";
 
-    /// <summary>
-    /// 通用名
-    /// </summary>
-    public string CommonName { get; set; } = string.Empty;
+    public string MaterialName { get; set; } = "";
+    public string? GeneralName { get; set; }
+    public string? BasicUnit { get; set; }
+    public string? Specification { get; set; }
+    public string? MaterialLevel { get; set; }
+    public string? RegistrationForm { get; set; }
+    public string? CropPlace { get; set; }
+    public string? ControlTarget { get; set; }
+    public string? UseTime { get; set; }
+    public string? RegistrationNo { get; set; }
+    public string? ProductAttribute { get; set; }
+    public string? CropAttribute { get; set; }
+    public string? ProductManager { get; set; }
+    public string? ProductInfo { get; set; }
 
-    /// <summary>
-    /// 基本单位
-    /// </summary>
-    public string BaseUnit { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 规格型号
-    /// </summary>
-    public string SpecModel { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 物料等级
-    /// </summary>
-    public string MaterialLevel { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 登记剂型
-    /// </summary>
-    public string DosageForm { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 作物场所
-    /// </summary>
-    public string CropSite { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 防治对象
-    /// </summary>
-    public string ControlTarget { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 大概使用时间
-    /// </summary>
-    public string UsageTime { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 登记证号
-    /// </summary>
-    public string RegistrationNo { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 产品属性
-    /// </summary>
-    public string ProductAttribute { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 作物属性
-    /// </summary>
-    public string CropAttribute { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 产品经理
-    /// </summary>
-    public string ProductManager { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 产品信息
-    /// </summary>
-    public string ProductInfo { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 物料图片列表（URL）
-    /// </summary>
+    /// <summary>物料图片 URL 列表（支持多图片）</summary>
     public List<string>? Images { get; set; }
+
+    /// <summary>字段映射未匹配到属性时会落进此字典（方便前端 "查看全部"）</summary>
+    public Dictionary<string, string> Extra { get; set; } = new Dictionary<string, string>();
 }
 
-/// <summary>
-/// 物料查询参数
-/// </summary>
+/// <summary>物料查询参数</summary>
 public class MaterialQueryParams
 {
     public string? Keyword { get; set; }
     public string? Level { get; set; }
     public int PageIndex { get; set; } = 1;
-    public int PageSize { get; set; } = 20;
+    public int PageSize { get; set; } = 50;
 }
 
-/// <summary>
-/// API响应结果
-/// </summary>
+/// <summary>统一 API 响应格式</summary>
 public class ApiResponse<T>
 {
     public bool Success { get; set; }
-    public string Message { get; set; } = string.Empty;
+    public string Message { get; set; } = "";
     public T? Data { get; set; }
-    public int TotalCount { get; set; }
 }

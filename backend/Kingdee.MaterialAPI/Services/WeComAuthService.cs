@@ -3,179 +3,132 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using Kingdee.MaterialAPI.Models;
-using Microsoft.Extensions.Options;
+using Kingdee.MaterialAPI.Services;
 using Microsoft.IdentityModel.Tokens;
 
-namespace Kingdee.MaterialAPI.Services;
+namespace Kingdee.MaterialAPI;
 
 /// <summary>
 /// 企业微信认证服务
 /// - OAuth2 授权：通过 code 换取 userid / 用户信息
 /// - JWT 签发：登录成功后下发 Token
-/// - JS-SDK 签名：提供 wx.config 需要的 signature
+/// - JS-SDK 签名：返回 wx.config 需要的 signature 等
+/// - 配置热更新：所有配置从 AppConfigStore 读取，管理后台保存后立即生效
 /// </summary>
 public class WeComAuthService
 {
-    private readonly WeComSettings _settings;
+    private readonly AppConfigStore _config;
     private readonly HttpClient _http;
     private readonly ILogger<WeComAuthService> _logger;
 
-    // 简单内存缓存（AccessToken 默认 7200 秒；JsapiTicket 同样）
+    // 缓存（access_token/jsapi_ticket 有效期一般 7200s）
     private static readonly ConcurrentDictionary<string, (string Token, DateTime ExpireAt)> _tokenCache = new();
     private static readonly ConcurrentDictionary<string, (string Ticket, DateTime ExpireAt)> _ticketCache = new();
 
-    // 用于 JWT 的序列化 JsonSerializerOptions
-    private static readonly JsonSerializerOptions _jsonOpts = new()
+    public WeComAuthService(AppConfigStore config, ILogger<WeComAuthService> logger)
     {
-        PropertyNameCaseInsensitive = true,
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-    };
-
-    public WeComAuthService(IOptions<WeComSettings> settings, ILogger<WeComAuthService> logger)
-    {
-        _settings = settings.Value;
+        _config = config;
         _logger = logger;
-        _http = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(10),
-            BaseAddress = new Uri("https://qyapi.weixin.qq.com")
-        };
+        _http = new HttpClient { Timeout = TimeSpan.FromSeconds(10), BaseAddress = new Uri("https://qyapi.weixin.qq.com") };
     }
 
-    public bool IsConfigured =>
-        !string.IsNullOrWhiteSpace(_settings.CorpId) &&
-        !string.IsNullOrWhiteSpace(_settings.Secret) &&
-        !string.IsNullOrWhiteSpace(_settings.JwtSecret);
+    /// <summary>当前配置是否已启用企业微信且设置了 corpId/secret</summary>
+    public bool IsConfigured
+    {
+        get
+        {
+            var c = _config.Get();
+            return c.WeComEnable &&
+                   !string.IsNullOrWhiteSpace(c.WeComCorpId) &&
+                   !string.IsNullOrWhiteSpace(c.WeComSecret);
+        }
+    }
 
-    public WeComSettings CurrentSettings => _settings;
-
-    /// <summary>
-    /// 生成企业微信 OAuth2 授权跳转 URL
-    /// </summary>
+    /// <summary>构造企业微信授权跳转 URL（OAuth2 scope=snsapi_base）</summary>
     public string BuildOAuthUrl(string? redirectAfter = null)
     {
-        var state = string.IsNullOrWhiteSpace(redirectAfter) ? "home" : Convert.ToBase64String(Encoding.UTF8.GetBytes(redirectAfter));
-        var redirect = Uri.EscapeDataString(_settings.CallbackUrl);
-        return $"https://open.weixin.qq.com/connect/oauth2/authorize?appid={_settings.CorpId}&redirect_uri={redirect}&response_type=code&scope=snsapi_base&state={state}#wechat_redirect";
+        var cfg = _config.Get();
+        var state = string.IsNullOrWhiteSpace(redirectAfter) ? "home"
+            : Convert.ToBase64String(Encoding.UTF8.GetBytes(redirectAfter));
+        var redirect = Uri.EscapeDataString(cfg.WeComCallbackUrl);
+        return $"https://open.weixin.qq.com/connect/oauth2/authorize?appid={cfg.WeComCorpId}&redirect_uri={redirect}&response_type=code&scope=snsapi_base&state={state}#wechat_redirect";
     }
 
-    /// <summary>
-    /// 用 code 换 userid
-    /// </summary>
-    public async Task<(string UserId, string? DeviceId)?> ExchangeCodeAsync(string code, CancellationToken ct = default)
+    /// <summary>用 code 换 userid</summary>
+    public async Task<string?> ExchangeCodeAsync(string code, CancellationToken ct = default)
     {
         try
         {
             var token = await GetAccessTokenAsync(ct);
             if (string.IsNullOrWhiteSpace(token)) return null;
-
-            var url = $"/cgi-bin/user/getuserinfo?access_token={token}&code={code}";
-            var resp = await _http.GetAsync(url, ct);
+            var resp = await _http.GetAsync($"/cgi-bin/user/getuserinfo?access_token={token}&code={code}", ct);
             resp.EnsureSuccessStatusCode();
             var body = await resp.Content.ReadAsStringAsync(ct);
-            var data = JsonDocument.Parse(body);
-
-            var errCode = data.RootElement.GetProperty("errcode").GetInt32();
-            if (errCode != 0)
+            var data = System.Text.Json.JsonDocument.Parse(body);
+            if (data.RootElement.TryGetProperty("errcode", out var ec) && ec.GetInt32() != 0)
             {
-                _logger.LogError("企业微信 getuserinfo 失败: {Body}", body);
+                _logger.LogWarning("企业微信 getuserinfo 失败: {Body}", body);
                 return null;
             }
-
-            var userId = data.RootElement.GetProperty("UserId").GetString();
-            var deviceId = data.RootElement.TryGetProperty("DeviceId", out var dev)
-                ? dev.GetString()
-                : null;
-
-            if (string.IsNullOrWhiteSpace(userId)) return null;
-            return (userId, deviceId);
+            return data.RootElement.TryGetProperty("UserId", out var uid) ? uid.GetString() : null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "企业微信 ExchangeCode 异常");
+            _logger.LogError(ex, "ExchangeCodeAsync 异常");
             return null;
         }
     }
 
-    /// <summary>
-    /// 根据 userid 获取成员姓名/部门等基本信息
-    /// </summary>
-    public async Task<(string Name, string Department, string Avatar, string Mobile)?> GetUserInfoAsync(string userId, CancellationToken ct = default)
+    /// <summary>根据 userid 拉成员姓名</summary>
+    public async Task<string> GetUserNameAsync(string userid, CancellationToken ct = default)
     {
         try
         {
             var token = await GetAccessTokenAsync(ct);
-            if (string.IsNullOrWhiteSpace(token)) return null;
-
-            var url = $"/cgi-bin/user/get?access_token={token}&userid={Uri.EscapeDataString(userId)}";
-            var resp = await _http.GetAsync(url, ct);
-            resp.EnsureSuccessStatusCode();
+            if (string.IsNullOrWhiteSpace(token)) return userid;
+            var resp = await _http.GetAsync($"/cgi-bin/user/get?access_token={token}&userid={Uri.EscapeDataString(userid)}", ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
-            var data = JsonDocument.Parse(body);
-
-            var errCode = data.RootElement.GetProperty("errcode").GetInt32();
-            if (errCode != 0)
-            {
-                _logger.LogError("企业微信 user/get 失败: {Body}", body);
-                return null;
-            }
-
-            var name = data.RootElement.GetProperty("name").GetString() ?? userId;
-            var avatar = data.RootElement.TryGetProperty("avatar", out var av) ? av.GetString() ?? "" : "";
-            var mobile = data.RootElement.TryGetProperty("mobile", out var mb) ? mb.GetString() ?? "" : "";
-            var dept = "";
-            if (data.RootElement.TryGetProperty("department", out var deptEl) && deptEl.ValueKind == JsonValueKind.Array)
-            {
-                dept = string.Join(",", deptEl.EnumerateArray().Select(x => x.GetInt32().ToString()));
-            }
-
-            return (name, dept, avatar, mobile);
+            var data = System.Text.Json.JsonDocument.Parse(body);
+            return data.RootElement.TryGetProperty("name", out var n) ? (n.GetString() ?? userid) : userid;
         }
-        catch (Exception ex)
+        catch
         {
-            _logger.LogError(ex, "企业微信 GetUserInfo 异常");
-            return null;
+            return userid;
         }
     }
 
-    /// <summary>
-    /// 签发 JWT Token（含 userid/name 等 claim）
-    /// </summary>
+    /// <summary>签发 JWT（userid/name）</summary>
     public string IssueJwt(string userid, string name)
     {
-        var key = Encoding.ASCII.GetBytes(_settings.JwtSecret);
+        var cfg = _config.Get();
+        var key = Encoding.ASCII.GetBytes(string.IsNullOrWhiteSpace(cfg.WeComJwtSecret) ? "dev-placeholder-change-me" : cfg.WeComJwtSecret);
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, userid),
             new Claim(ClaimTypes.Name, name),
-            new Claim("corpid", _settings.CorpId)
+            new Claim("corpid", cfg.WeComCorpId ?? "")
         };
-        var tokenDescriptor = new SecurityTokenDescriptor
+        var desc = new SecurityTokenDescriptor
         {
             Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddHours(_settings.JwtExpireHours <= 0 ? 24 : _settings.JwtExpireHours),
+            Expires = DateTime.UtcNow.AddHours(cfg.WeComJwtExpireHours <= 0 ? 24 : cfg.WeComJwtExpireHours),
             SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature),
             Issuer = "Kingdee.MaterialAPI",
             Audience = "WeComUser"
         };
-        var tokenHandler = new JwtSecurityTokenHandler();
-        var token = tokenHandler.CreateToken(tokenDescriptor);
-        return tokenHandler.WriteToken(token);
+        var handler = new JwtSecurityTokenHandler();
+        return handler.WriteToken(handler.CreateToken(desc));
     }
 
-    /// <summary>
-    /// 验证 JWT，成功时返回 userid / name
-    /// </summary>
+    /// <summary>验证 JWT，返回 (userid,name)</summary>
     public (bool Ok, string UserId, string Name) ValidateJwt(string token)
     {
         try
         {
-            var key = Encoding.ASCII.GetBytes(_settings.JwtSecret);
-            var tokenHandler = new JwtSecurityTokenHandler();
-            tokenHandler.ValidateToken(token, new TokenValidationParameters
+            var cfg = _config.Get();
+            var key = Encoding.ASCII.GetBytes(string.IsNullOrWhiteSpace(cfg.WeComJwtSecret) ? "dev-placeholder-change-me" : cfg.WeComJwtSecret);
+            var handler = new JwtSecurityTokenHandler();
+            handler.ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuer = true,
                 ValidateAudience = true,
@@ -188,9 +141,9 @@ public class WeComAuthService
             }, out var validated);
 
             var jwt = (JwtSecurityToken)validated;
-            var userId = jwt.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value ?? "";
+            var uid = jwt.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier)?.Value ?? "";
             var name = jwt.Claims.FirstOrDefault(c => c.Type == ClaimTypes.Name)?.Value ?? "";
-            return (true, userId, name);
+            return (true, uid, name);
         }
         catch (Exception ex)
         {
@@ -199,115 +152,90 @@ public class WeComAuthService
         }
     }
 
-    /// <summary>
-    /// 获取 AccessToken（带缓存）
-    /// </summary>
+    // ======== AccessToken / JsApiTicket （带内存缓存） =========
     public async Task<string> GetAccessTokenAsync(CancellationToken ct = default)
     {
-        var cacheKey = "access_token:" + _settings.CorpId + ":" + _settings.Secret.GetHashCode();
-        if (_tokenCache.TryGetValue(cacheKey, out var cached) && cached.ExpireAt > DateTime.Now)
-        {
+        var cfg = _config.Get();
+        var key = $"wx_token|{cfg.WeComCorpId}|{cfg.WeComSecret.GetHashCode()}";
+        if (_tokenCache.TryGetValue(key, out var cached) && cached.ExpireAt > DateTime.Now)
             return cached.Token;
-        }
 
         try
         {
-            var url = $"/cgi-bin/gettoken?corpid={Uri.EscapeDataString(_settings.CorpId)}&corpsecret={Uri.EscapeDataString(_settings.Secret)}";
-            var resp = await _http.GetAsync(url, ct);
-            resp.EnsureSuccessStatusCode();
+            var resp = await _http.GetAsync($"/cgi-bin/gettoken?corpid={Uri.EscapeDataString(cfg.WeComCorpId)}&corpsecret={Uri.EscapeDataString(cfg.WeComSecret)}", ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
-            var data = JsonDocument.Parse(body);
-
-            var errCode = data.RootElement.GetProperty("errcode").GetInt32();
-            if (errCode != 0)
+            var data = System.Text.Json.JsonDocument.Parse(body);
+            if (data.RootElement.TryGetProperty("errcode", out var ec) && ec.GetInt32() != 0)
             {
-                _logger.LogError("企业微信 gettoken 失败: {Body}", body);
-                return string.Empty;
+                _logger.LogWarning("企业微信 gettoken 失败: {Body}", body);
+                return "";
             }
-
             var token = data.RootElement.GetProperty("access_token").GetString() ?? "";
-            var expiresIn = data.RootElement.TryGetProperty("expires_in", out var exp)
-                ? exp.GetInt32()
-                : 7200;
-
-            _tokenCache[cacheKey] = (token, DateTime.Now.AddSeconds(expiresIn - 120));
+            var expireIn = 3600;
+            if (data.RootElement.TryGetProperty("expires_in", out var exp))
+                int.TryParse(exp.ToString(), out expireIn);
+            _tokenCache[key] = (token, DateTime.Now.AddSeconds(expireIn - 120));
             return token;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "企业微信 GetAccessToken 异常");
-            return string.Empty;
+            _logger.LogError(ex, "GetAccessTokenAsync 异常");
+            return "";
         }
     }
 
-    /// <summary>
-    /// 获取 JS-SDK 所需的 jsapi_ticket（带缓存）
-    /// </summary>
     public async Task<string> GetJsApiTicketAsync(CancellationToken ct = default)
     {
-        var cacheKey = "ticket:" + _settings.CorpId + ":" + _settings.Secret.GetHashCode();
-        if (_ticketCache.TryGetValue(cacheKey, out var cached) && cached.ExpireAt > DateTime.Now)
-        {
-            return cached.Ticket;
-        }
+        var cfg = _config.Get();
+        var key = $"wx_ticket|{cfg.WeComCorpId}|{cfg.WeComSecret.GetHashCode()}";
+        if (_ticketCache.TryGetValue(key, out var cached) && cached.ExpireAt > DateTime.Now)
+            return cached.Token;
 
         try
         {
             var token = await GetAccessTokenAsync(ct);
-            if (string.IsNullOrWhiteSpace(token)) return string.Empty;
-
-            var url = $"/cgi-bin/get_jsapi_ticket?access_token={token}";
-            var resp = await _http.GetAsync(url, ct);
-            resp.EnsureSuccessStatusCode();
+            if (string.IsNullOrWhiteSpace(token)) return "";
+            var resp = await _http.GetAsync($"/cgi-bin/get_jsapi_ticket?access_token={token}", ct);
             var body = await resp.Content.ReadAsStringAsync(ct);
-            var data = JsonDocument.Parse(body);
-
-            var errCode = data.RootElement.GetProperty("errcode").GetInt32();
-            if (errCode != 0)
+            var data = System.Text.Json.JsonDocument.Parse(body);
+            if (data.RootElement.TryGetProperty("errcode", out var ec) && ec.GetInt32() != 0)
             {
-                _logger.LogError("企业微信 get_jsapi_ticket 失败: {Body}", body);
-                return string.Empty;
+                _logger.LogWarning("企业微信 get_jsapi_ticket 失败: {Body}", body);
+                return "";
             }
-
             var ticket = data.RootElement.GetProperty("ticket").GetString() ?? "";
-            var expiresIn = data.RootElement.TryGetProperty("expires_in", out var exp)
-                ? exp.GetInt32()
-                : 7200;
-
-            _ticketCache[cacheKey] = (ticket, DateTime.Now.AddSeconds(expiresIn - 120));
+            var expireIn = 3600;
+            if (data.RootElement.TryGetProperty("expires_in", out var exp))
+                int.TryParse(exp.ToString(), out expireIn);
+            _ticketCache[key] = (ticket, DateTime.Now.AddSeconds(expireIn - 120));
             return ticket;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "企业微信 GetJsApiTicket 异常");
-            return string.Empty;
+            _logger.LogError(ex, "GetJsApiTicketAsync 异常");
+            return "";
         }
     }
 
-    /// <summary>
-    /// 生成 wx.config 需要的签名参数
-    /// </summary>
+    /// <summary>为当前 URL 生成 JS-SDK 签名参数</summary>
     public async Task<(string AppId, ulong Timestamp, string NonceStr, string Signature, int ErrCode, string ErrMsg)> BuildJsSdkSignAsync(string url, CancellationToken ct = default)
     {
         try
         {
+            var cfg = _config.Get();
             var ticket = await GetJsApiTicketAsync(ct);
             if (string.IsNullOrWhiteSpace(ticket))
-                return (_settings.CorpId, 0, "", "", 500, "无法获取 jsapi_ticket");
-
+                return (cfg.WeComCorpId, 0, "", "", 500, "无法获取 jsapi_ticket");
             var nonce = Guid.NewGuid().ToString("N").Substring(0, 16);
             var timestamp = (ulong)(DateTime.UtcNow - new DateTime(1970, 1, 1)).TotalSeconds;
-
-            // 签名串：按字段 ASCII 字典序
             var raw = $"jsapi_ticket={ticket}&noncestr={nonce}&timestamp={timestamp}&url={url}";
-            var signature = Sha1(raw);
-
-            return (_settings.CorpId, timestamp, nonce, signature, 0, "OK");
+            return (cfg.WeComCorpId, timestamp, nonce, Sha1(raw), 0, "OK");
         }
         catch (Exception ex)
         {
+            var cfg = _config.Get();
             _logger.LogError(ex, "BuildJsSdkSign 异常");
-            return (_settings.CorpId, 0, "", "", 500, ex.Message);
+            return (cfg.WeComCorpId, 0, "", "", 500, ex.Message);
         }
     }
 

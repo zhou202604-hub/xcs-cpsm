@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物料查询 - 管理后台</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <!-- ========= 登录页 ========= -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-card">
+            <div class="login-title-row">
+                <span class="logo-icon" style="font-size:22px;">KD</span>
+                <h1>物料查询 · 管理后台</h1>
+            </div>
+            <p class="login-sub">用于配置金蝶连接、字段映射与企业微信</p>
+
+            <div class="form-row">
+                <label>管理员密码</label>
+                <input type="password" id="adminPwd" placeholder="默认密码：admin123" autocomplete="off" />
+            </div>
+
+            <div class="login-tip" id="loginTip"></div>
+
+            <button class="primary-btn" onclick="doLogin()">登 录</button>
+
+            <div class="login-footer">
+                提示：首次使用请先登录，之后在"企业微信"Tab 配置 CorpId / Secret。
+            </div>
+        </div>
+    </div>
+
+    <!-- ========= 主界面（登录后显示） ========= -->
+    <div id="mainScreen" class="main-screen" style="display:none;">
+        <aside class="side-bar">
+            <div class="side-bar-header">
+                <span class="logo-icon">KD</span>
+                <div>
+                    <div class="side-bar-title">物料查询</div>
+                    <div class="side-bar-sub">管理后台</div>
+                </div>
+            </div>
+            <nav class="side-nav">
+                <a class="nav-item active" data-tab="kingdee" onclick="switchTab(this,'kingdee')">
+                    <span class="nav-dot"></span>金蝶连接
+                </a>
+                <a class="nav-item" data-tab="fields" onclick="switchTab(this,'fields')">
+                    <span class="nav-dot"></span>字段映射
+                </a>
+                <a class="nav-item" data-tab="wecom" onclick="switchTab(this,'wecom')">
+                    <span class="nav-dot"></span>企业微信
+                </a>
+                <a class="nav-item" data-tab="security" onclick="switchTab(this,'security')">
+                    <span class="nav-dot"></span>安全设置
+                </a>
+            </nav>
+            <div class="side-footer">
+                <button class="link-btn" onclick="logout()">退出登录</button>
+            </div>
+        </aside>
+
+        <main class="content-area">
+            <!-- Tab 1: 金蝶 -->
+            <section id="tab-kingdee" class="tab-panel active">
+                <div class="panel-header">
+                    <h2>金蝶云星空连接</h2>
+                    <div class="panel-tip">
+                        保存后立即生效；测试按钮可以校验当前配置是否可成功登录。
+                    </div>
+                </div>
+                <div class="form-card">
+                    <div class="switch-row">
+                        <span class="form-label">启用金蝶数据源</span>
+                        <label class="switch">
+                            <input type="checkbox" id="kd_enable">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="form-row">
+                        <label>金蝶服务器地址</label>
+                        <input type="text" id="kd_server" placeholder="http://your-kingdee-server/k3cloud/" />
+                    </div>
+
+                    <div class="form-row-two">
+                        <div class="form-row">
+                            <label>账套 ID / DbId</label>
+                            <input type="text" id="kd_dbId" placeholder="例：5eb0b6..." />
+                        </div>
+                        <div class="form-row">
+                            <label>登录用户名</label>
+                            <input type="text" id="kd_user" placeholder="例：administrator" />
+                        </div>
+                    </div>
+
+                    <div class="form-row-two">
+                        <div class="form-row">
+                            <label>密码</label>
+                            <input type="password" id="kd_pwd" placeholder="*********" />
+                        </div>
+                        <div class="form-row">
+                            <label>语言（LcId）</label>
+                            <input type="number" id="kd_lcid" value="2052" />
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <label>物料表单 ID（FormId）</label>
+                        <input type="text" id="kd_formId" placeholder="BD_MATERIAL" />
+                    </div>
+
+                    <div class="form-row">
+                        <label>图片附件服务器（可选）</label>
+                        <input type="text" id="kd_imageServer"
+                               placeholder="http://your-kingdee-server/k3cloud/ 或 文件服务地址" />
+                    </div>
+
+                    <div class="btn-row">
+                        <button class="secondary-btn" onclick="testKingdee()">测试连接</button>
+                        <button class="primary-btn" onclick="saveKingdee()">保存配置</button>
+                    </div>
+                    <div id="kingdeeMsg" class="form-msg"></div>
+                </div>
+            </section>
+
+            <!-- Tab 2: 字段映射 -->
+            <section id="tab-fields" class="tab-panel">
+                <div class="panel-header">
+                    <h2>字段映射</h2>
+                    <div class="panel-tip">
+                        每一行 = 移动端要展示的一个字段。<br>
+                        "字段 Key" 对应 Material.cs 属性名（英文，小驼峰）；<br>
+                        "金蝶字段" 是金蝶表单里实际字段名（如 FName、FSpecification）；<br>
+                        可写多个字段用英文逗号分隔（例如图片字段可能有多个来源）。
+                    </div>
+                </div>
+                <div class="form-card">
+                    <div class="fields-toolbar">
+                        <button class="secondary-btn" onclick="addFieldRow()">＋ 新增一行</button>
+                        <button class="secondary-btn" onclick="resetDefaults()">重置为默认映射</button>
+                    </div>
+                    <div class="field-table" id="fieldTable">
+                        <div class="field-row field-head">
+                            <div style="flex:0 0 60px;">启用</div>
+                            <div style="flex:0 0 220px;">字段 Key（英文）</div>
+                            <div style="flex:0 0 220px;">显示名称</div>
+                            <div style="flex:1 1 auto;">金蝶字段（多个用英文逗号分隔）</div>
+                            <div style="flex:0 0 80px;text-align:right;">操作</div>
+                        </div>
+                        <!-- 行由 app.js 渲染 -->
+                    </div>
+                    <div class="btn-row">
+                        <button class="primary-btn" onclick="saveFieldMappings()">保存字段映射</button>
+                    </div>
+                    <div id="fieldsMsg" class="form-msg"></div>
+                </div>
+            </section>
+
+            <!-- Tab 3: 企业微信 -->
+            <section id="tab-wecom" class="tab-panel">
+                <div class="panel-header">
+                    <h2>企业微信自建应用</h2>
+                    <div class="panel-tip">
+                        配置保存后，成员在企业微信点击应用会自动走 OAuth2 登录，并获取其姓名。
+                    </div>
+                </div>
+                <div class="form-card">
+                    <div class="switch-row">
+                        <span class="form-label">启用企业微信登录</span>
+                        <label class="switch">
+                            <input type="checkbox" id="wx_enable">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div class="form-row-two">
+                        <div class="form-row">
+                            <label>企业 ID（CorpId）</label>
+                            <input type="text" id="wx_corpId" placeholder="例：ww1a2b3c4d5e6f7" />
+                        </div>
+                        <div class="form-row">
+                            <label>应用 AgentId</label>
+                            <input type="text" id="wx_agentId" placeholder="例：1000001" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <label>应用 Secret</label>
+                        <input type="password" id="wx_secret" placeholder="应用密钥" />
+                    </div>
+                    <div class="form-row">
+                        <label>回调地址（完整 URL，必须是 https）</label>
+                        <input type="text" id="wx_callback" placeholder="https://material.your-company.com/api/auth" />
+                    </div>
+                    <div class="form-row-two">
+                        <div class="form-row">
+                            <label>JWT 密钥（≥ 16 位，改它会让所有人重新登录）</label>
+                            <input type="password" id="wx_jwtSecret" placeholder="至少 16 位长字符串" />
+                        </div>
+                        <div class="form-row">
+                            <label>JWT 有效期（小时）</label>
+                            <input type="number" id="wx_expireHours" value="24" />
+                        </div>
+                    </div>
+                    <div class="btn-row">
+                        <button class="secondary-btn" onclick="testWeCom()">测试企业微信</button>
+                        <button class="primary-btn" onclick="saveWeCom()">保存配置</button>
+                    </div>
+                    <div id="wecomMsg" class="form-msg"></div>
+
+                    <div class="info-box">
+                        <div class="info-box-title">📌 在企业微信管理后台需要配置</div>
+                        <ol>
+                            <li>「应用管理 → 自建应用」新建应用 → 填入应用名/Logo → 可见范围选择全员或指定部门</li>
+                            <li>进入应用详情页 → 「开发者接口 → 网页授权及 JS-SDK」→ 可信域名填写：<code>material.your-company.com</code>（必须 HTTPS，与上面回调地址域名一致）</li>
+                            <li>「应用主页 → 主页 URL」填写：<code>https://material.your-company.com/</code></li>
+                            <li>把上面页面看到的 CorpId / AgentId / Secret 填到本页保存即可</li>
+                        </ol>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab 4: 安全设置 -->
+            <section id="tab-security" class="tab-panel">
+                <div class="panel-header">
+                    <h2>安全设置</h2>
+                    <div class="panel-tip">修改管理员登录密码。</div>
+                </div>
+                <div class="form-card">
+                    <div class="form-row">
+                        <label>新密码（至少 6 位）</label>
+                        <input type="password" id="sec_newPwd" placeholder="新密码" />
+                    </div>
+                    <div class="form-row">
+                        <label>再输入一次</label>
+                        <input type="password" id="sec_newPwd2" placeholder="再输入一次" />
+                    </div>
+                    <div class="btn-row">
+                        <button class="primary-btn" onclick="changeAdminPwd()">修改密码</button>
+                    </div>
+                    <div id="secMsg" class="form-msg"></div>
+                </div>
+            </section>
+
+            <footer class="app-footer">
+                <span>物料查询系统 · 金蝶云星空对接 · 企业微信集成</span>
+                <a href="javascript:void(0)" onclick="loadConfig()">↻ 刷新配置</a>
+            </footer>
+        </main>
+    </div>
+
+    <script src="js/admin.js"></script>
+</body>
+</html>
