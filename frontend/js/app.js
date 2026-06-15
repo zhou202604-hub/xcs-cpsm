@@ -39,31 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         // 后端不可用，继续使用 mock
     }
 
-    // ② 非企业微信环境或已登录，尝试 wx.config（用于扫码）
-    try {
-        if (window.wx && typeof wx.config === 'function' && location.protocol !== 'file:') {
-            const signRes = await apiFetch('/auth/jssdk?url=' + encodeURIComponent(location.href.split('#')[0]));
-            if (signRes && signRes.appId) {
-                wx.config({
-                    beta: true,
-                    debug: false,
-                    appId: signRes.appId,
-                    timestamp: signRes.timestamp,
-                    nonceStr: signRes.nonceStr,
-                    signature: signRes.signature,
-                    jsApiList: ['scanQRCode']
-                });
-                wx.ready(() => { /* JS-SDK ready */ });
-                wx.error(err => {
-                    console.warn('wx.config 失败（仅影响扫码功能）:', err);
-                });
-            }
-        }
-    } catch (e) {
-        console.warn('JS-SDK 未配置：扫码按钮将仅作为普通搜索入口');
-    }
-
-    // ③ 加载物料列表
+    // ② 加载物料列表
     loadMaterials();
 });
 
@@ -457,45 +433,6 @@ function refreshPreview() {
         }
     });
 })();
-
-// ---------------- 扫码 ----------------
-function startScan() {
-    if (window.wx && typeof wx.scanQRCode === 'function') {
-        try {
-            wx.scanQRCode({
-                needResult: 1,               // 1 = 返回结果，0 = 企业微信自己处理
-                scanType: ['qrCode', 'barCode'],
-                success: (res) => {
-                    const result = (res.resultStr || '').trim();
-                    if (!result) return;
-                    // 有时会是 "CODE_128,物料号" 的格式
-                    const code = result.includes(',') ? result.split(',').pop() : result;
-                    document.getElementById('searchInput').value = code;
-                    document.getElementById('clearBtn').style.display = 'flex';
-                    currentKeyword = code;
-                    applyFilters();
-                },
-                error: (err) => {
-                    alert('扫码失败，请手动输入（' + (err.errMsg || err) + '）');
-                }
-            });
-        } catch (e) {
-            promptManual();
-        }
-    } else {
-        promptManual();
-    }
-}
-
-function promptManual() {
-    const code = prompt('当前环境不支持企业微信扫码。请直接输入物料编号/关键词：');
-    if (code) {
-        document.getElementById('searchInput').value = code;
-        document.getElementById('clearBtn').style.display = 'flex';
-        currentKeyword = code;
-        applyFilters();
-    }
-}
 
 // ---------------- 样式补充 ----------------
 (function addInlineStyles() {
