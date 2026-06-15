@@ -1,308 +1,120 @@
-// ============ 配置项 ============
-const API_BASE = '/api';
+// ============================================================
+// 物料查询（前端）：
+//  - 优先请求后端 /api/material（失败回退到 data.js 的 mock）
+//  - 企业微信登录后写 wc_token，所有请求自动带上 Authorization
+//  - 扫码按钮：调用企业微信 JS-SDK scanQRCode，扫到的内容直接作为关键词搜索
+// ============================================================
+
+// 兼容两种相对路径：直接打开文件 / 托管在后端根路径
+const API_BASE = (location.protocol === 'file:' || location.hostname === '')
+    ? 'http://localhost:5000/api'
+    : '/api';
+
 const USE_MOCK_FALLBACK = true;
 
-// ============ Mock 数据（后端不可用时的后备数据）============
-const mockMaterials = [
-    {
-        id: 'WL-00001',
-        materialName: '20%草铵膦水剂',
-        commonName: '草铵膦',
-        baseUnit: '升',
-        specModel: '5L/桶',
-        materialLevel: '一级',
-        dosageForm: '水剂',
-        cropSite: '果园、非耕地',
-        controlTarget: '牛筋草、狗尾草、马唐等一年生杂草',
-        usageTime: '杂草3-5叶期',
-        registrationNo: 'PD20200012',
-        productAttribute: '除草剂',
-        cropAttribute: '大田作物',
-        productManager: '张伟',
-        productInfo: '本产品为触杀型除草剂，对多种一年生和多年生杂草有良好防效。施药后6小时遇雨不影响药效。',
-        images: [
-            'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=800&q=80',
-            'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=800&q=80',
-            'https://images.unsplash.com/photo-1592982537447-74608774e56d?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00002',
-        materialName: '40%多菌灵悬浮剂',
-        commonName: '多菌灵',
-        baseUnit: '千克',
-        specModel: '1kg/袋',
-        materialLevel: '一级',
-        dosageForm: '悬浮剂',
-        cropSite: '蔬菜、果树、水稻',
-        controlTarget: '稻瘟病、纹枯病、白粉病、炭疽病',
-        usageTime: '发病初期',
-        registrationNo: 'PD20180345',
-        productAttribute: '杀菌剂',
-        cropAttribute: '经济作物',
-        productManager: '李娜',
-        productInfo: '广谱性杀菌剂，具有保护和治疗作用。可用于防治多种作物的真菌性病害。',
-        images: [
-            'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800&q=80',
-            'https://images.unsplash.com/photo-1583912267550-df7699274737?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00003',
-        materialName: '25%吡虫啉可湿性粉剂',
-        commonName: '吡虫啉',
-        baseUnit: '克',
-        specModel: '100g/袋',
-        materialLevel: '二级',
-        dosageForm: '可湿性粉剂',
-        cropSite: '小麦、水稻、蔬菜、果树',
-        controlTarget: '蚜虫、飞虱、蓟马、粉虱等刺吸式口器害虫',
-        usageTime: '害虫发生初期',
-        registrationNo: 'PD20190789',
-        productAttribute: '杀虫剂',
-        cropAttribute: '大田作物',
-        productManager: '王强',
-        productInfo: '烟碱类杀虫剂，具有内吸、触杀和胃毒作用。对刺吸式口器害虫有特效，持效期长。',
-        images: [
-            'https://images.unsplash.com/photo-1574949966261-9562ae68a82c?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00004',
-        materialName: '5%阿维菌素乳油',
-        commonName: '阿维菌素',
-        baseUnit: '毫升',
-        specModel: '500ml/瓶',
-        materialLevel: '二级',
-        dosageForm: '乳油',
-        cropSite: '蔬菜、果树、棉花',
-        controlTarget: '红蜘蛛、斑潜蝇、菜青虫、棉铃虫',
-        usageTime: '低龄幼虫期',
-        registrationNo: 'PD20170567',
-        productAttribute: '杀虫剂',
-        cropAttribute: '经济作物',
-        productManager: '陈芳',
-        productInfo: '生物源杀虫剂，具有触杀和胃毒作用。对螨类和鳞翅目幼虫有良好防效。',
-        images: [
-            'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=800&q=80',
-            'https://images.unsplash.com/photo-1592982537447-74608774e56d?w=800&q=80',
-            'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=800&q=80',
-            'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00005',
-        materialName: '95%草甘膦原药',
-        commonName: '草甘膦',
-        baseUnit: '千克',
-        specModel: '25kg/袋',
-        materialLevel: '三级',
-        dosageForm: '原药',
-        cropSite: '非耕地、果园行间',
-        controlTarget: '一年生及多年生杂草',
-        usageTime: '杂草生长旺盛期',
-        registrationNo: 'PD20150234',
-        productAttribute: '除草剂',
-        cropAttribute: '非耕地',
-        productManager: '刘洋',
-        productInfo: '广谱灭生性除草剂，通过植物茎叶吸收后传导至根部。用于非耕地除草效果显著。',
-        images: []
-    },
-    {
-        id: 'WL-00006',
-        materialName: '15%氟磺胺草醚乳油',
-        commonName: '氟磺胺草醚',
-        baseUnit: '升',
-        specModel: '1L/瓶',
-        materialLevel: '二级',
-        dosageForm: '乳油',
-        cropSite: '大豆田、花生田',
-        controlTarget: '反枝苋、马齿苋、藜等阔叶杂草',
-        usageTime: '大豆2-4片复叶期',
-        registrationNo: 'PD20210456',
-        productAttribute: '除草剂',
-        cropAttribute: '豆科作物',
-        productManager: '赵敏',
-        productInfo: '二苯醚类选择性苗后除草剂，用于大豆和花生田防除阔叶杂草。',
-        images: [
-            'https://images.unsplash.com/photo-1583912267550-df7699274737?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00007',
-        materialName: '80%代森锰锌可湿性粉剂',
-        commonName: '代森锰锌',
-        baseUnit: '千克',
-        specModel: '2kg/袋',
-        materialLevel: '一级',
-        dosageForm: '可湿性粉剂',
-        cropSite: '果树、蔬菜、大田作物',
-        controlTarget: '霜霉病、疫病、炭疽病、叶斑病',
-        usageTime: '发病前或发病初期',
-        registrationNo: 'PD20160890',
-        productAttribute: '杀菌剂',
-        cropAttribute: '经济作物',
-        productManager: '张伟',
-        productInfo: '广谱保护性杀菌剂，含锰、锌微量元素。能有效防治多种真菌性病害。',
-        images: [
-            'https://images.unsplash.com/photo-1592982537447-74608774e56d?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00008',
-        materialName: '20%噻虫嗪水分散粒剂',
-        commonName: '噻虫嗪',
-        baseUnit: '克',
-        specModel: '200g/袋',
-        materialLevel: '二级',
-        dosageForm: '水分散粒剂',
-        cropSite: '水稻、小麦、棉花、蔬菜',
-        controlTarget: '稻飞虱、蚜虫、蓟马、白粉虱',
-        usageTime: '害虫发生初期',
-        registrationNo: 'PD20200678',
-        productAttribute: '杀虫剂',
-        cropAttribute: '大田作物',
-        productManager: '李娜',
-        productInfo: '新一代烟碱类杀虫剂，具有胃毒、触杀和内吸活性。杀虫谱广、活性高、持效期长。',
-        images: [
-            'https://images.unsplash.com/photo-1574949966261-9562ae68a82c?w=800&q=80',
-            'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00009',
-        materialName: '30%苯醚甲环唑水分散粒剂',
-        commonName: '苯醚甲环唑',
-        baseUnit: '克',
-        specModel: '100g/袋',
-        materialLevel: '一级',
-        dosageForm: '水分散粒剂',
-        cropSite: '果树、蔬菜、禾谷类作物',
-        controlTarget: '黑星病、白粉病、叶斑病、锈病',
-        usageTime: '发病初期',
-        registrationNo: 'PD20190123',
-        productAttribute: '杀菌剂',
-        cropAttribute: '经济作物',
-        productManager: '王强',
-        productInfo: '三唑类广谱杀菌剂，具有保护、治疗和铲除作用。对子囊菌、担子菌和半知菌引起的病害有特效。',
-        images: [
-            'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=800&q=80',
-            'https://images.unsplash.com/photo-1416879595882-3373a0480b5b?w=800&q=80',
-            'https://images.unsplash.com/photo-1583912267550-df7699274737?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00010',
-        materialName: '10%氰氟草酯乳油',
-        commonName: '氰氟草酯',
-        baseUnit: '升',
-        specModel: '1L/瓶',
-        materialLevel: '三级',
-        dosageForm: '乳油',
-        cropSite: '水稻田',
-        controlTarget: '稗草、千金子等禾本科杂草',
-        usageTime: '水稻插秧后5-7天',
-        registrationNo: 'PD20180456',
-        productAttribute: '除草剂',
-        cropAttribute: '水稻',
-        productManager: '陈芳',
-        productInfo: '芳氧苯氧丙酸酯类除草剂，用于水稻田防除禾本科杂草。对千金子、稗草特效。',
-        images: [
-            'https://images.unsplash.com/photo-1592982537447-74608774e56d?w=800&q=80'
-        ]
-    },
-    {
-        id: 'WL-00011',
-        materialName: '45%咪鲜胺水乳剂',
-        commonName: '咪鲜胺',
-        baseUnit: '毫升',
-        specModel: '500ml/瓶',
-        materialLevel: '一级',
-        dosageForm: '水乳剂',
-        cropSite: '果树、蔬菜、食用菌',
-        controlTarget: '炭疽病、蒂腐病、青霉病、绿霉病',
-        usageTime: '发病初期或采后处理',
-        registrationNo: 'PD20210234',
-        productAttribute: '杀菌剂',
-        cropAttribute: '经济作物',
-        productManager: '刘洋',
-        productInfo: '咪唑类广谱杀菌剂，对多种作物由子囊菌和半知菌引起的病害有明显防效。也可用于水果采后防腐保鲜。',
-        images: []
-    },
-    {
-        id: 'WL-00012',
-        materialName: '50%氯氰菊酯乳油',
-        commonName: '氯氰菊酯',
-        baseUnit: '毫升',
-        specModel: '250ml/瓶',
-        materialLevel: '二级',
-        dosageForm: '乳油',
-        cropSite: '蔬菜、果树、棉花、大豆',
-        controlTarget: '菜青虫、棉铃虫、食心虫、蚜虫',
-        usageTime: '低龄幼虫期',
-        registrationNo: 'PD20170890',
-        productAttribute: '杀虫剂',
-        cropAttribute: '大田作物',
-        productManager: '赵敏',
-        productInfo: '拟除虫菊酯类杀虫剂，具有触杀和胃毒作用。杀虫谱广，击倒速度快。',
-        images: [
-            'https://images.unsplash.com/photo-1560493676-04071c5f467b?w=800&q=80',
-            'https://images.unsplash.com/photo-1625246333195-78d9c38ad449?w=800&q=80'
-        ]
-    }
-];
-
-// ============ 全局状态 ============
 let allMaterials = [];
 let filteredMaterials = [];
-let currentLevelFilter = '';
 let currentKeyword = '';
-let currentDetail = null;
-let currentImageIndex = 0;
-let previewImageIndex = 0;
+let currentLevelFilter = '';
+let searchTimer = null;
 
-// ============ 初始化 ============
-document.addEventListener('DOMContentLoaded', function () {
+// ---------------- 启动 ----------------
+document.addEventListener('DOMContentLoaded', async () => {
+    // ① 先看有没有本地 token；没有就去后端触发企业微信登录
+    const token = localStorage.getItem('wc_token');
+    const name = localStorage.getItem('wc_name') || '';
+    if (name) {
+        document.getElementById('userName').textContent = name;
+        document.getElementById('userInfo').style.display = 'flex';
+    }
+
+    try {
+        const cfgRes = await apiFetch('/config', { silent: true });
+        if (cfgRes && cfgRes.weComConfigured && !token) {
+            // 需要企业微信登录：跳转 /api/auth（后端会直接跳企业微信授权页）
+            window.location.replace('/api/auth');
+            return;
+        }
+    } catch (e) {
+        // 后端不可用，继续使用 mock
+    }
+
+    // ② 非企业微信环境或已登录，尝试 wx.config（用于扫码）
+    try {
+        if (window.wx && typeof wx.config === 'function' && location.protocol !== 'file:') {
+            const signRes = await apiFetch('/auth/jssdk?url=' + encodeURIComponent(location.href.split('#')[0]));
+            if (signRes && signRes.appId) {
+                wx.config({
+                    beta: true,
+                    debug: false,
+                    appId: signRes.appId,
+                    timestamp: signRes.timestamp,
+                    nonceStr: signRes.nonceStr,
+                    signature: signRes.signature,
+                    jsApiList: ['scanQRCode']
+                });
+                wx.ready(() => { /* JS-SDK ready */ });
+                wx.error(err => {
+                    console.warn('wx.config 失败（仅影响扫码功能）:', err);
+                });
+            }
+        }
+    } catch (e) {
+        console.warn('JS-SDK 未配置：扫码按钮将仅作为普通搜索入口');
+    }
+
+    // ③ 加载物料列表
     loadMaterials();
 });
 
-// ============ API 调用 ============
-async function fetchMaterialsFromApi(keyword, level) {
-    const params = new URLSearchParams();
-    if (keyword) params.append('keyword', keyword);
-    if (level) params.append('level', level);
-    params.append('pageIndex', '1');
-    params.append('pageSize', '100');
+// ---------------- 网络请求 ----------------
+async function apiFetch(path, opts = {}) {
+    const token = localStorage.getItem('wc_token') || '';
+    const headers = Object.assign(
+        { 'Content-Type': 'application/json' },
+        token ? { 'Authorization': 'Bearer ' + token } : {}
+    );
 
-    const url = `${API_BASE}/material?${params.toString()}`;
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`API请求失败: ${response.status}`);
+    try {
+        const resp = await fetch(API_BASE + path, {
+            method: 'GET',
+            headers,
+            cache: 'no-cache'
+        });
+        if (!resp.ok) {
+            throw new Error('HTTP ' + resp.status);
+        }
+        return await resp.json();
+    } catch (err) {
+        if (opts.silent) return null;
+        throw err;
     }
-    const data = await response.json();
-    return data.data || [];
 }
 
-async function fetchMaterialDetailFromApi(id) {
-    const response = await fetch(`${API_BASE}/material/${id}`);
-    if (!response.ok) throw new Error('获取详情失败');
-    const data = await response.json();
-    return data.data;
+async function fetchMaterialsFromApi(keyword, level) {
+    const url = '/material?keyword=' + encodeURIComponent(keyword || '')
+        + '&level=' + encodeURIComponent(level || '')
+        + '&pageIndex=1&pageSize=50';
+    const data = await apiFetch(url);
+    if (data && data.data && Array.isArray(data.data)) {
+        return data.data;
+    }
+    if (Array.isArray(data)) return data;
+    return null;
 }
 
-// ============ 数据加载 ============
+// ---------------- 列表加载 ----------------
 async function loadMaterials() {
     showLoading();
     try {
-        // 优先尝试后端API
         const materials = await fetchMaterialsFromApi(currentKeyword, currentLevelFilter);
         if (materials && materials.length > 0) {
             allMaterials = materials;
             filteredMaterials = [...allMaterials];
         } else if (USE_MOCK_FALLBACK) {
-            // 回退到mock数据
-            allMaterials = [...mockMaterials];
+            allMaterials = [...window.mockMaterials || []];
             filteredMaterials = [...allMaterials];
+            if (currentKeyword) applyFilters();
         } else {
             allMaterials = [];
             filteredMaterials = [];
@@ -311,7 +123,7 @@ async function loadMaterials() {
     } catch (err) {
         console.warn('API调用失败，使用Mock数据:', err.message);
         if (USE_MOCK_FALLBACK) {
-            allMaterials = [...mockMaterials];
+            allMaterials = [...(window.mockMaterials || [])];
             filteredMaterials = [...allMaterials];
             if (currentKeyword) applyFilters();
             renderMaterialList();
@@ -321,60 +133,31 @@ async function loadMaterials() {
     }
 }
 
-function applyFilters() {
-    filteredMaterials = allMaterials.filter(m => {
-        const kw = (currentKeyword || '').toLowerCase();
-        const matchKeyword = !kw ||
-            (m.materialName || '').toLowerCase().includes(kw) ||
-            (m.commonName || '').toLowerCase().includes(kw) ||
-            (m.specModel || '').toLowerCase().includes(kw) ||
-            (m.registrationNo || '').toLowerCase().includes(kw) ||
-            (m.productManager || '').toLowerCase().includes(kw);
-
-        const matchLevel = !currentLevelFilter || m.materialLevel === currentLevelFilter;
-        return matchKeyword && matchLevel;
-    });
+// ---------------- UI 状态控制 ----------------
+function showLoading() {
+    document.getElementById('loadingState').style.display = 'flex';
+    document.getElementById('materialList').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('errorState').style.display = 'none';
 }
 
-// ============ 搜索与筛选 ============
-let searchTimer = null;
-function onSearchInput() {
-    const keyword = document.getElementById('searchInput').value;
-    document.getElementById('clearBtn').style.display = keyword ? 'flex' : 'none';
-    currentKeyword = keyword;
-    // 防抖：避免频繁请求
-    if (searchTimer) clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-        loadMaterials();
-    }, 400);
+function showError(msg) {
+    document.getElementById('errorState').style.display = 'flex';
+    document.getElementById('errorMessage').textContent = msg || '请求失败';
+    document.getElementById('materialList').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+    document.getElementById('loadingState').style.display = 'none';
 }
 
-function clearSearch() {
-    document.getElementById('searchInput').value = '';
-    document.getElementById('clearBtn').style.display = 'none';
-    currentKeyword = '';
-    currentLevelFilter = '';
-    document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
-    document.querySelector('.filter-tab[data-level=""]').classList.add('active');
-    loadMaterials();
-}
-
-function filterByLevel(btn, level) {
-    document.querySelectorAll('.filter-tab').forEach(tab => tab.classList.remove('active'));
-    btn.classList.add('active');
-    currentLevelFilter = level;
-    loadMaterials();
-}
-
-// ============ 渲染列表 ============
+// ---------------- 渲染列表 ----------------
 function renderMaterialList() {
     const listEl = document.getElementById('materialList');
     const emptyEl = document.getElementById('emptyState');
     const loadingEl = document.getElementById('loadingState');
     const errorEl = document.getElementById('errorState');
 
-    errorEl.style.display = 'none';
     loadingEl.style.display = 'none';
+    errorEl.style.display = 'none';
 
     if (filteredMaterials.length === 0) {
         listEl.style.display = 'none';
@@ -382,330 +165,351 @@ function renderMaterialList() {
         return;
     }
 
-    listEl.style.display = 'flex';
+    listEl.style.display = 'block';
     emptyEl.style.display = 'none';
 
-    listEl.innerHTML = filteredMaterials.map(m => renderCard(m)).join('');
-}
+    listEl.innerHTML = filteredMaterials.map((m, idx) => {
+        const images = (m.images && Array.isArray(m.images) && m.images.length > 0) ? m.images : [];
+        const imageCount = images.length;
+        const showImages = imageCount > 0;
 
-function renderCard(m) {
-    const imageCount = (m.images || []).length;
-    const displayImages = (m.images || []).slice(0, 3);
-    const hasMoreImages = imageCount > 3;
-
-    let thumbsHtml = '';
-    if (imageCount > 0) {
-        thumbsHtml = `
-            <div class="card-image-section">
-                ${displayImages.map((img, idx) => `
-                    <div class="card-thumb">
-                        <img src="${img}" alt="${m.materialName}" loading="lazy" onerror="this.style.display='none';this.parentNode.innerHTML='<svg viewBox=\\'0 0 24 24\\' width=\\'32\\' height=\\'32\\' fill=\\'none\\' stroke=\\'currentColor\\' stroke-width=\\'1.5\\'><path d=\\'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6\\'/></svg>'">
+        return `
+            <div class="material-card" onclick="showDetail(${idx})">
+                <div class="card-header">
+                    <div class="card-title-area">
+                        <h3 class="material-name">${escapeHtml(m.materialName || '(未命名)')}</h3>
+                        ${m.generalName ? `<p class="material-sub">${escapeHtml(m.generalName)}</p>` : ''}
                     </div>
-                `).join('')}
-                ${hasMoreImages ? `<div class="card-thumb card-thumb-more">+${imageCount - 3}</div>` : ''}
+                    ${m.materialLevel ? `<span class="level-badge level-${levelClass(m.materialLevel)}">${escapeHtml(m.materialLevel)}</span>` : ''}
+                </div>
+                <div class="card-info">
+                    <div class="info-row">
+                        ${m.registrationNo ? `<div class="info-item"><span class="info-label">登记证号</span><span class="info-value">${escapeHtml(m.registrationNo)}</span></div>` : ''}
+                        ${m.basicUnit ? `<div class="info-item"><span class="info-label">基本单位</span><span class="info-value">${escapeHtml(m.basicUnit)}</span></div>` : ''}
+                    </div>
+                    <div class="info-row">
+                        ${m.specification ? `<div class="info-item"><span class="info-label">规格型号</span><span class="info-value">${escapeHtml(m.specification)}</span></div>` : ''}
+                        ${m.productManager ? `<div class="info-item"><span class="info-label">产品经理</span><span class="info-value">${escapeHtml(m.productManager)}</span></div>` : ''}
+                    </div>
+                </div>
+                ${showImages ? `
+                    <div class="card-images">
+                        ${images.slice(0, 3).map(src => `<img src="${src}" alt="" loading="lazy" onerror="this.style.display='none'">`).join('')}
+                        ${imageCount > 3 ? `<div class="image-more">+${imageCount - 3}</div>` : ''}
+                    </div>
+                ` : ''}
+                <div class="card-footer">
+                    <span class="detail-hint">查看详情</span>
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="m9 18 6-6-6-6"></path>
+                    </svg>
+                </div>
             </div>
         `;
-    }
-
-    return `
-        <div class="material-card" onclick="showDetail('${m.id}')">
-            ${thumbsHtml}
-            <div class="card-header">
-                <div class="material-name">${m.materialName}</div>
-                ${m.materialLevel ? `<span class="level-badge level-${m.materialLevel}">${m.materialLevel}</span>` : ''}
-            </div>
-            ${m.commonName ? `<div class="card-subtitle">通用名：<strong>${m.commonName}</strong></div>` : ''}
-            ${m.specModel ? `<div class="card-subtitle">规格：<strong>${m.specModel}</strong></div>` : ''}
-            <div class="card-info">
-                ${m.productAttribute ? `<span class="info-tag primary">${m.productAttribute}</span>` : ''}
-                ${m.dosageForm ? `<span class="info-tag">${m.dosageForm}</span>` : ''}
-                ${m.baseUnit ? `<span class="info-tag">${m.baseUnit}</span>` : ''}
-            </div>
-            <div class="card-footer">
-                <span>编号：${m.id}</span>
-                <span class="view-detail">
-                    查看详情
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="m9 18 6-6-6-6"/>
-                    </svg>
-                </span>
-            </div>
-        </div>
-    `;
+    }).join('');
 }
 
-// ============ 状态显示 ============
-function showLoading() {
-    document.getElementById('materialList').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'none';
-    document.getElementById('errorState').style.display = 'none';
-    document.getElementById('loadingState').style.display = 'flex';
+function levelClass(level) {
+    if (!level) return 'default';
+    if (level.includes('一')) return 'one';
+    if (level.includes('二')) return 'two';
+    if (level.includes('三')) return 'three';
+    return 'default';
 }
 
-function showError(msg) {
-    document.getElementById('materialList').style.display = 'none';
-    document.getElementById('emptyState').style.display = 'none';
-    document.getElementById('loadingState').style.display = 'none';
-    const errorEl = document.getElementById('errorState');
-    errorEl.style.display = 'flex';
-    document.getElementById('errorTitle').textContent = '加载失败';
-    document.getElementById('errorMessage').textContent = msg || '请稍后重试';
+function escapeHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
-// ============ 详情页 ============
-async function showDetail(id) {
-    // 先尝试从已有的列表数据中找
-    let material = allMaterials.find(m => m.id === id);
-    // 如果没有或图片字段缺失，尝试从后端获取详情
-    if (!material || !material.images) {
-        try {
-            const detail = await fetchMaterialDetailFromApi(id);
-            if (detail) material = detail;
-        } catch (e) {
-            console.warn('获取详情失败:', e);
+// ---------------- 搜索 ----------------
+function onSearchInput() {
+    const val = document.getElementById('searchInput').value.trim();
+    document.getElementById('clearBtn').style.display = val ? 'flex' : 'none';
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+        currentKeyword = val;
+        applyFilters();
+    }, 250);
+}
+
+function clearSearch() {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('clearBtn').style.display = 'none';
+    currentKeyword = '';
+    applyFilters();
+}
+
+function filterByLevel(btn, level) {
+    document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentLevelFilter = level;
+    applyFilters();
+}
+
+function applyFilters() {
+    const kw = (currentKeyword || '').toLowerCase();
+    const lv = currentLevelFilter || '';
+    const src = (allMaterials && allMaterials.length) ? allMaterials : (window.mockMaterials || []);
+
+    filteredMaterials = src.filter(m => {
+        if (lv) {
+            if ((m.materialLevel || '') !== lv) return false;
         }
-    }
-    if (!material) return;
-    currentDetail = material;
-    currentImageIndex = 0;
+        if (kw) {
+            const hay = [
+                m.materialName, m.generalName, m.specification,
+                m.registrationNo, m.productManager, m.productInfo
+            ].filter(Boolean).join(' ').toLowerCase();
+            if (!hay.includes(kw)) return false;
+        }
+        return true;
+    });
 
-    const detailBody = document.getElementById('detailBody');
-    document.getElementById('detailTitle').textContent = material.materialName;
-
-    detailBody.innerHTML = renderDetail(material);
-    document.getElementById('detailModal').classList.add('active');
-    document.body.style.overflow = 'hidden';
-
-    // 初始化轮播滚动监听
-    const scrollEl = document.querySelector('.image-scroll');
-    if (scrollEl) {
-        scrollEl.addEventListener('scroll', handleCarouselScroll);
-    }
+    renderMaterialList();
 }
 
-function renderDetail(m) {
-    const images = m.images || [];
+// ---------------- 详情 ----------------
+let currentDetailImages = [];
+let currentPreviewIndex = 0;
+
+function showDetail(idx) {
+    const m = filteredMaterials[idx];
+    if (!m) return;
+
+    const images = (m.images && Array.isArray(m.images) && m.images.length > 0) ? m.images : [];
+    currentDetailImages = images;
     const imageCount = images.length;
 
-    let imageHtml = '';
+    document.getElementById('detailTitle').textContent = m.materialName || '物料详情';
+
+    const rows = [
+        { label: '通用名', value: m.generalName },
+        { label: '基本单位', value: m.basicUnit },
+        { label: '规格型号', value: m.specification },
+        { label: '物料等级', value: m.materialLevel },
+        { label: '登记剂型', value: m.registrationForm },
+        { label: '作物场所', value: m.cropPlace },
+        { label: '防治对象', value: m.controlTarget },
+        { label: '大概使用时间', value: m.useTime },
+        { label: '登记证号', value: m.registrationNo },
+        { label: '产品属性', value: m.productAttribute },
+        { label: '作物属性', value: m.cropAttribute },
+        { label: '产品经理', value: m.productManager }
+    ].filter(r => r.value != null && r.value !== '');
+
+    let html = '';
+
     if (imageCount > 0) {
-        imageHtml = `
+        html += `
             <div class="detail-image-section">
                 <div class="image-carousel">
                     <div class="image-scroll">
-                        ${images.map((img, idx) => `
+                        ${images.map((src, i) => `
                             <div class="image-scroll-item">
-                                <img src="${img}" alt="${m.materialName}-${idx + 1}" onclick="openImagePreview(${idx})">
+                                <img src="${src}" alt="图片${i + 1}" onclick="openImagePreview(${i})"
+                                     onerror="this.style.display='none'">
                             </div>
                         `).join('')}
                     </div>
-                    ${imageCount > 1 ? `<div class="image-count-badge">1 / ${imageCount}</div>` : ''}
+                    <div class="image-count-badge">1 / ${imageCount}</div>
                 </div>
-                ${imageCount > 1 ? `<div class="carousel-dots" id="carouselDots">
-                    ${images.map((_, idx) => `<div class="carousel-dot ${idx === 0 ? 'active' : ''}"></div>`).join('')}
-                </div>` : ''}
-            </div>
-        `;
-    } else {
-        imageHtml = `
-            <div class="detail-image-section">
-                <div class="image-carousel">
-                    <div class="image-scroll">
-                        <div class="image-scroll-item">
-                            <svg viewBox="0 0 24 24" width="80" height="80" fill="none" stroke="currentColor" stroke-width="1.5">
-                                <path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                            </svg>
-                            <div class="image-placeholder-text">暂无图片</div>
-                        </div>
+                ${imageCount > 1 ? `
+                    <div class="carousel-dots" id="carouselDots">
+                        ${images.map((_, i) => `<div class="carousel-dot ${i === 0 ? 'active' : ''}"></div>`).join('')}
                     </div>
-                </div>
+                ` : ''}
             </div>
         `;
     }
 
-    const section1 = [
-        ['物料名称', m.materialName],
-        ['通用名', m.commonName],
-        ['物料编码', m.id],
-        ['规格型号', m.specModel],
-        ['基本单位', m.baseUnit],
-        ['物料等级', m.materialLevel, 'badge'],
-        ['登记剂型', m.dosageForm]
-    ].filter(row => row[1]);
-
-    const section2 = [
-        ['作物场所', m.cropSite],
-        ['防治对象', m.controlTarget],
-        ['大概使用时间', m.usageTime],
-    ].filter(row => row[1]);
-
-    const section3 = [
-        ['登记证号', m.registrationNo],
-        ['产品属性', m.productAttribute],
-        ['作物属性', m.cropAttribute],
-        ['产品经理', m.productManager]
-    ].filter(row => row[1]);
-
-    const renderRow = (label, value, mode) => {
-        if (mode === 'badge') {
-            return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value"><span class="detail-badge level-${value}">${value}</span></span></div>`;
-        }
-        return `<div class="detail-row"><span class="detail-label">${label}</span><span class="detail-value secondary">${value}</span></div>`;
-    };
-
-    return `
-        ${imageHtml}
-
-        <div class="detail-section">
-            <div class="section-title">基本信息</div>
-            <div class="detail-grid">
-                ${section1.map(row => {
-                    if (row[2] === 'badge') return renderRow(row[0], row[1], 'badge');
-                    return `<div class="detail-row"><span class="detail-label">${row[0]}</span><span class="detail-value">${row[1]}</span></div>`;
-                }).join('')}
+    html += `
+        <div class="detail-info-section">
+            <h3 class="detail-section-title">基础信息</h3>
+            <div class="detail-info-grid">
+                ${rows.map(r => `
+                    <div class="detail-info-item">
+                        <span class="detail-info-label">${escapeHtml(r.label)}</span>
+                        <span class="detail-info-value">${escapeHtml(r.value)}</span>
+                    </div>
+                `).join('')}
             </div>
+            ${m.productInfo ? `
+                <h3 class="detail-section-title" style="margin-top:16px;">产品信息</h3>
+                <p class="product-info-text">${escapeHtml(m.productInfo)}</p>
+            ` : ''}
         </div>
-
-        ${section2.length > 0 ? `
-        <div class="detail-section">
-            <div class="section-title">使用信息</div>
-            <div class="detail-grid">
-                ${section2.map(row => renderRow(row[0], row[1])).join('')}
-            </div>
-        </div>` : ''}
-
-        ${section3.length > 0 ? `
-        <div class="detail-section">
-            <div class="section-title">登记与属性</div>
-            <div class="detail-grid">
-                ${section3.map(row => `<div class="detail-row"><span class="detail-label">${row[0]}</span><span class="detail-value">${row[1]}</span></div>`).join('')}
-            </div>
-        </div>` : ''}
-
-        ${m.productInfo ? `
-        <div class="detail-section">
-            <div class="section-title">产品信息</div>
-            <div style="font-size: 14px; color: var(--text-secondary); line-height: 1.7;">${m.productInfo}</div>
-        </div>` : ''}
     `;
+
+    document.getElementById('detailBody').innerHTML = html;
+    document.getElementById('detailModal').classList.add('show');
+    document.body.style.overflow = 'hidden';
+
+    // 图片轮播：监听滚动以更新页码
+    if (imageCount > 1) {
+        const scroll = document.querySelector('.image-scroll');
+        if (scroll) {
+            scroll.addEventListener('scroll', onCarouselScroll, { passive: true });
+        }
+    }
 }
 
-function handleCarouselScroll(e) {
-    const container = e.target;
-    if (!container) return;
-    const itemWidth = container.clientWidth;
-    const scrollX = container.scrollLeft;
-    const idx = Math.round(scrollX / itemWidth);
-    if (idx !== currentImageIndex) {
-        currentImageIndex = idx;
-        // 更新计数
-        const badge = document.querySelector('.image-count-badge');
-        if (badge && currentDetail) {
-            const total = (currentDetail.images || []).length;
-            badge.textContent = `${idx + 1} / ${total}`;
-        }
-        // 更新圆点
-        const dots = document.querySelectorAll('#carouselDots .carousel-dot');
-        dots.forEach((dot, i) => dot.classList.toggle('active', i === idx));
-    }
+function onCarouselScroll() {
+    const scroll = document.querySelector('.image-scroll');
+    if (!scroll) return;
+    const itemWidth = scroll.clientWidth;
+    if (!itemWidth) return;
+    const idx = Math.round(scroll.scrollLeft / itemWidth);
+    const total = currentDetailImages.length;
+
+    const badge = document.querySelector('.image-count-badge');
+    if (badge) badge.textContent = (idx + 1) + ' / ' + total;
+
+    const dots = document.querySelectorAll('#carouselDots .carousel-dot');
+    dots.forEach((d, i) => d.classList.toggle('active', i === idx));
 }
 
 function closeDetail() {
-    document.getElementById('detailModal').classList.remove('active');
+    document.getElementById('detailModal').classList.remove('show');
     document.body.style.overflow = '';
-    currentDetail = null;
 }
 
-// ============ 图片全屏预览 ============
-function openImagePreview(startIdx) {
-    if (!currentDetail || !currentDetail.images || currentDetail.images.length === 0) return;
-    previewImageIndex = startIdx;
-    const images = currentDetail.images;
-    const modal = document.getElementById('imagePreviewModal');
+// ---------------- 图片全屏预览 ----------------
+function openImagePreview(index) {
+    if (!currentDetailImages || currentDetailImages.length === 0) return;
+    currentPreviewIndex = index || 0;
 
     const slider = document.getElementById('imagePreviewSlider');
-    slider.innerHTML = images.map(img => `
-        <div class="image-preview-slide">
-            <img src="${img}" alt="预览图">
+    const dotsWrap = document.getElementById('imagePreviewDots');
+    const countWrap = document.getElementById('imagePreviewCount');
+
+    slider.innerHTML = currentDetailImages.map(src => `
+        <div class="image-preview-item">
+            <img src="${src}" alt="预览图" onerror="this.style.opacity=.2">
         </div>
     `).join('');
 
-    const dots = document.getElementById('imagePreviewDots');
-    dots.innerHTML = images.map((_, idx) => `<div class="carousel-dot ${idx === startIdx ? 'active' : ''}"></div>`).join('');
+    dotsWrap.innerHTML = currentDetailImages.map((_, i) =>
+        `<div class="carousel-dot ${i === currentPreviewIndex ? 'active' : ''}"
+              onclick="event.stopPropagation();jumpToImage(${i})"></div>`
+    ).join('');
+    countWrap.textContent = (currentPreviewIndex + 1) + ' / ' + currentDetailImages.length;
 
-    document.getElementById('imagePreviewCount').textContent = `${startIdx + 1} / ${images.length}`;
+    slider.style.transform = 'translateX(' + (-currentPreviewIndex * 100) + '%)';
 
-    modal.classList.add('active');
-    document.body.style.overflow = 'hidden';
-
-    // 滚动到起始图片
-    setTimeout(() => {
-        slider.scrollLeft = startIdx * slider.clientWidth;
-    }, 50);
-
-    slider.addEventListener('scroll', handlePreviewScroll, { once: false });
+    const modal = document.getElementById('imagePreviewModal');
+    modal.classList.add('show');
+    modal.onclick = (e) => {
+        if (e.target === modal || e.target === modal.querySelector('.image-preview-content') || e.target === modal.querySelector('.image-preview-slider')) {
+            closeImagePreview();
+        }
+    };
 }
 
-function handlePreviewScroll(e) {
-    const container = e.target;
-    const itemWidth = container.clientWidth;
-    const scrollX = container.scrollLeft;
-    const idx = Math.round(scrollX / itemWidth);
-    if (idx !== previewImageIndex) {
-        previewImageIndex = idx;
-        const images = currentDetail.images || [];
-        document.getElementById('imagePreviewCount').textContent = `${idx + 1} / ${images.length}`;
-        const dots = document.querySelectorAll('#imagePreviewDots .carousel-dot');
-        dots.forEach((dot, i) => dot.classList.toggle('active', i === idx));
-    }
-}
-
-function prevImage() {
-    const images = currentDetail.images || [];
-    if (images.length === 0) return;
-    previewImageIndex = (previewImageIndex - 1 + images.length) % images.length;
-    scrollToPreview(previewImageIndex);
+function closeImagePreview() {
+    document.getElementById('imagePreviewModal').classList.remove('show');
 }
 
 function nextImage() {
-    const images = currentDetail.images || [];
-    if (images.length === 0) return;
-    previewImageIndex = (previewImageIndex + 1) % images.length;
-    scrollToPreview(previewImageIndex);
+    if (!currentDetailImages.length) return;
+    currentPreviewIndex = (currentPreviewIndex + 1) % currentDetailImages.length;
+    refreshPreview();
 }
 
-function scrollToPreview(idx) {
+function prevImage() {
+    if (!currentDetailImages.length) return;
+    currentPreviewIndex = (currentPreviewIndex - 1 + currentDetailImages.length) % currentDetailImages.length;
+    refreshPreview();
+}
+
+function jumpToImage(i) {
+    currentPreviewIndex = i;
+    refreshPreview();
+}
+
+function refreshPreview() {
     const slider = document.getElementById('imagePreviewSlider');
-    slider.scrollTo({ left: idx * slider.clientWidth, behavior: 'smooth' });
+    slider.style.transform = 'translateX(' + (-currentPreviewIndex * 100) + '%)';
+    document.getElementById('imagePreviewCount').textContent = (currentPreviewIndex + 1) + ' / ' + currentDetailImages.length;
+    const dots = document.querySelectorAll('#imagePreviewDots .carousel-dot');
+    dots.forEach((d, i) => d.classList.toggle('active', i === currentPreviewIndex));
 }
 
-function closeImagePreview(event) {
-    // 只有点击背景或关闭按钮才关闭
-    if (event && event.target && !event.target.closest('.image-preview-content') && !event.target.closest('.image-preview-close')) return;
-    document.getElementById('imagePreviewModal').classList.remove('active');
-    if (!document.getElementById('detailModal').classList.contains('active')) {
-        document.body.style.overflow = '';
-    }
-}
-
-// ESC 关闭
-document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') {
-        if (document.getElementById('imagePreviewModal').classList.contains('active')) {
-            document.getElementById('imagePreviewModal').classList.remove('active');
-            document.body.style.overflow = '';
-        } else if (document.getElementById('detailModal').classList.contains('active')) {
-            closeDetail();
+// 触摸左右滑动切换预览
+(function enableSwipe() {
+    let startX = 0, delta = 0;
+    const slider = document.getElementById('imagePreviewSlider');
+    if (!slider) return;
+    slider.addEventListener('touchstart', (e) => {
+        startX = e.touches[0].clientX; delta = 0;
+    }, { passive: true });
+    slider.addEventListener('touchmove', (e) => {
+        delta = e.touches[0].clientX - startX;
+    }, { passive: true });
+    slider.addEventListener('touchend', () => {
+        if (Math.abs(delta) > 40) {
+            if (delta < 0) nextImage(); else prevImage();
         }
-    }
-    // 左右方向键切换预览
-    if (document.getElementById('imagePreviewModal').classList.contains('active')) {
-        if (e.key === 'ArrowLeft') prevImage();
-        if (e.key === 'ArrowRight') nextImage();
-    }
-});
+    });
+})();
 
-// 详情面板点击背景关闭
-document.getElementById('detailModal').addEventListener('click', function (e) {
-    if (e.target === this) closeDetail();
-});
+// ---------------- 扫码 ----------------
+function startScan() {
+    if (window.wx && typeof wx.scanQRCode === 'function') {
+        try {
+            wx.scanQRCode({
+                needResult: 1,               // 1 = 返回结果，0 = 企业微信自己处理
+                scanType: ['qrCode', 'barCode'],
+                success: (res) => {
+                    const result = (res.resultStr || '').trim();
+                    if (!result) return;
+                    // 有时会是 "CODE_128,物料号" 的格式
+                    const code = result.includes(',') ? result.split(',').pop() : result;
+                    document.getElementById('searchInput').value = code;
+                    document.getElementById('clearBtn').style.display = 'flex';
+                    currentKeyword = code;
+                    applyFilters();
+                },
+                error: (err) => {
+                    alert('扫码失败，请手动输入（' + (err.errMsg || err) + '）');
+                }
+            });
+        } catch (e) {
+            promptManual();
+        }
+    } else {
+        promptManual();
+    }
+}
+
+function promptManual() {
+    const code = prompt('当前环境不支持企业微信扫码。请直接输入物料编号/关键词：');
+    if (code) {
+        document.getElementById('searchInput').value = code;
+        document.getElementById('clearBtn').style.display = 'flex';
+        currentKeyword = code;
+        applyFilters();
+    }
+}
+
+// ---------------- 样式补充 ----------------
+(function addInlineStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        .user-info {
+            display: flex; align-items: center; gap: 6px;
+            padding: 6px 12px; background: #f0f7ff; color: #1890ff;
+            font-size: 12px; border-bottom: 1px solid #d9ecff;
+        }
+        .user-badge {
+            background: #1890ff; color: #fff; padding: 2px 6px;
+            border-radius: 4px; font-size: 11px; letter-spacing: .5px;
+        }
+    `;
+    document.head.appendChild(style);
+})();
