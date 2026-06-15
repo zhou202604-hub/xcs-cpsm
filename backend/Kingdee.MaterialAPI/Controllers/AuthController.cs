@@ -4,121 +4,81 @@ using Microsoft.AspNetCore.Mvc;
 namespace Kingdee.MaterialAPI.Controllers;
 
 /// <summary>
-/// 企业微信回调 &amp; 当前用户 &amp; JS-SDK 签名
+/// 企业微信 OAuth2 回调：
+///   GET /api/auth           → 无 code → 跳企业微信登录 / 回首页
+///   GET /api/auth?code=xxx  → 交换 code → 发 token → 跳回首页
+///   GET /api/auth/me        → 当前登录人
 /// </summary>
 [ApiController]
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
     private readonly WeComAuthService _weCom;
-    private readonly AppConfigStore _config;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(WeComAuthService weCom, AppConfigStore config, ILogger<AuthController> logger)
+    public AuthController(WeComAuthService weCom, ILogger<AuthController> logger)
     {
         _weCom = weCom;
-        _config = config;
         _logger = logger;
     }
 
-    /// <summary>
-    /// 企业微信回调 URL（在企业微信管理后台配置为可信回调）
-    /// 无 code 时自动跳转到企业微信授权页；带 code 时拿 userid → 发 JWT → 写 cookie + localStorage → 返回首页
-    /// </summary>
     [HttpGet]
-    [HttpPost]
-    public async Task<IActionResult> Callback([FromQuery] string? code = null,
-        [FromQuery] string? state = null,
-        CancellationToken ct = default)
+    public async Task<IActionResult> Auth([FromQuery] string? code = null)
     {
-        // 未配置企业微信 → 返回登录页（开发调试）
-        if (!_weCom.IsConfigured)
+        // 未配置企业微信：返回简单的匿名登录页（直接用内置用户"dev-user"）
+        if (!_weCom.IsWeComConfigured)
         {
-            var devToken = _weCom.IssueJwt("dev-user", "开发调试用户");
-            return Content(BuildSetTokenHtml(devToken, "开发调试用户", "/"),
-                "text/html; charset=utf-8");
+            var fakeToken = _weCom.IssueToken("dev-user", "开发调试用户");
+            return Content(BuildSetTokenHtml(fakeToken, "开发调试用户"), "text/html; charset=utf-8");
         }
 
-        // 没 code → 跳转企业微信授权
+        // 无 code → 跳企业微信授权
         if (string.IsNullOrWhiteSpace(code))
         {
-            return Redirect(_weCom.BuildOAuthUrl(state));
+            return Redirect(_weCom.BuildOAuthUrl());
         }
 
-        // 用 code 换 userid
-        var userid = await _weCom.ExchangeCodeAsync(code, ct);
-        if (string.IsNullOrWhiteSpace(userid))
+        // 有 code → 拿 userid / name → 签发 token → 写 localStorage + 回首页
+        var (uid, name) = await _weCom.ExchangeCodeGetUser(code);
+        if (string.IsNullOrWhiteSpace(uid))
         {
-            return Content(@"<html><body><h3>企业微信登录失败</h3><p>请回到企业微信，重新打开应用</p></body></html>",
+            return Content(@"<html><body><h3>企业微信登录失败</h3><p>请关闭页面后重新打开应用</p></body></html>",
                 "text/html; charset=utf-8");
         }
 
-        var name = await _weCom.GetUserNameAsync(userid, ct);
-        var token = _weCom.IssueJwt(userid, name);
+        var token = _weCom.IssueToken(uid, name);
+        _logger.LogInformation("企业微信登录：{User} ({Name})", uid, name);
+        return Content(BuildSetTokenHtml(token, name), "text/html; charset=utf-8");
+    }
 
-        // state 里携带的原始跳转路径
-        var redirectPath = "/";
-        if (!string.IsNullOrWhiteSpace(state) && state != "home")
+    [HttpGet("me")]
+    public IActionResult Me([FromHeader(Name = "Authorization")] string? authHeader = null)
+    {
+        string? token = null;
+        if (!string.IsNullOrWhiteSpace(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
         {
-            try
-            {
-                var bytes = Convert.FromBase64String(state);
-                var decoded = System.Text.Encoding.UTF8.GetString(bytes);
-                if (!string.IsNullOrWhiteSpace(decoded) && decoded.StartsWith('/'))
-                    redirectPath = decoded;
-            }
-            catch { }
+            token = authHeader.Substring(7).Trim();
+        }
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            token = Request.Query["token"];
+        }
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return Ok(new { authenticated = false });
         }
 
-        _logger.LogInformation("企业微信登录: {UserId}({Name})", userid, name);
-        return Content(BuildSetTokenHtml(token, name, redirectPath), "text/html; charset=utf-8");
-    }
-
-    /// <summary>返回当前用户（前端校验 JWT）</summary>
-    [HttpGet("me")]
-    public IActionResult Me()
-    {
-        var token = Request.Headers["Authorization"].FirstOrDefault()?.Replace("Bearer ", "", StringComparison.Ordinal);
-        if (string.IsNullOrWhiteSpace(token)) token = Request.Cookies["wct"];
-        if (string.IsNullOrWhiteSpace(token))
-            return Ok(new { Authenticated = false, Mode = _weCom.IsConfigured ? "WeCom" : "Dev" });
-
-        var (ok, uid, name) = _weCom.ValidateJwt(token);
-        return Ok(new { Authenticated = ok, UserId = uid, Name = name, Mode = _weCom.IsConfigured ? "WeCom" : "Dev" });
-    }
-
-    /// <summary>JS-SDK 签名（将来如需扫码可以加上）</summary>
-    [HttpGet("jssdk")]
-    public async Task<IActionResult> JsSdk([FromQuery] string url, CancellationToken ct = default)
-    {
-        var (appId, timestamp, nonce, sig, err, errMsg) =
-            await _weCom.BuildJsSdkSignAsync(string.IsNullOrWhiteSpace(url) ? Request.Headers["Referer"].FirstOrDefault() ?? "" : url, ct);
+        var (ok, userId, name) = _weCom.ValidateToken(token);
         return Ok(new
         {
-            appId,
-            timestamp,
-            nonceStr = nonce,
-            signature = sig,
-            errCode = err,
-            errMsg,
-            debug = false
+            authenticated = ok,
+            userId = ok ? userId : "",
+            name = ok ? name : "",
+            weComEnabled = _weCom.IsWeComConfigured
         });
     }
 
-    [HttpGet("config")]
-    public IActionResult ConfigStatus()
-    {
-        var c = _config.Get();
-        return Ok(new
-        {
-            WeComConfigured = _weCom.IsConfigured,
-            CorpId = c.WeComCorpId,
-            AgentId = c.WeComAgentId,
-            CallbackUrl = c.WeComCallbackUrl
-        });
-    }
-
-    private static string BuildSetTokenHtml(string token, string name, string redirectPath)
+    private static string BuildSetTokenHtml(string token, string name)
     {
         return $@"<!DOCTYPE html>
 <html lang=""zh-CN"">
@@ -126,28 +86,16 @@ public class AuthController : ControllerBase
 <meta charset=""utf-8"" />
 <title>登录中 - 物料查询</title>
 <meta name=""viewport"" content=""width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"" />
-<style>
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
-           display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;
-           background:#f5f7fa;color:#262626; }}
-    .card {{ background:#fff;padding:32px 24px;border-radius:10px;text-align:center;
-             box-shadow:0 2px 8px rgba(0,0,0,.08); }}
-    h2 {{ font-size:18px;margin:0 0 8px;color:#1890ff; }}
-    p {{ font-size:12px;color:#8c8c8c;margin:0; }}
-</style>
 </head>
-<body>
-<div class=""card"">
-    <h2>欢迎，{System.Net.WebUtility.HtmlEncode(name)}</h2>
-    <p>正在进入物料查询系统…</p>
+<body style=""display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f7fa;font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif;"">
+<div style=""background:#fff;padding:24px 28px;border-radius:10px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08);"">
+<h2 style=""font-size:18px;margin:0 0 8px;color:#1890ff;"">欢迎，{System.Net.WebUtility.HtmlEncode(name)}</h2>
+<p style=""color:#8c8c8c;font-size:13px;margin:0;"">正在进入物料查询系统…</p>
 </div>
 <script>
 (function(){{
-    try {{
-        localStorage.setItem('wc_token', '{token.Replace("\"", "\\\"")}');
-        localStorage.setItem('wc_name', '{System.Net.WebUtility.HtmlEncode(name).Replace("'", "\\'")}');
-    }} catch(e) {{}}
-    setTimeout(function(){{ window.location.replace('{redirectPath}'); }}, 300);
+try {{ localStorage.setItem('wc_token','{token.Replace("'","\\'").Replace("\\","\\\\")}'); }} catch(e){{}}
+setTimeout(function(){{ window.location.replace('/'); }}, 400);
 }})();
 </script>
 </body>

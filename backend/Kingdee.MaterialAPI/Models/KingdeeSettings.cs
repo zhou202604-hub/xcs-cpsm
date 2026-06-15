@@ -1,47 +1,52 @@
 namespace Kingdee.MaterialAPI.Models;
 
-/// <summary>
-/// 金蝶云星空API配置
-/// </summary>
+/// <summary>金蝶服务器信息（来自管理后台保存的配置）</summary>
 public class KingdeeSettings
 {
-    /// <summary>
-    /// 是否启用金蝶API（为 false 时使用内置 Mock 数据）
-    /// </summary>
-    public bool Enable { get; set; } = false;
-
-    /// <summary>
-    /// 金蝶云星空站点地址，如：http://192.168.3.5/k3cloud/
-    /// </summary>
-    public string ServerUrl { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 账套/数据中心ID
-    /// </summary>
-    public string DbId { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 登录用户名
-    /// </summary>
-    public string UserName { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 登录密码
-    /// </summary>
-    public string Password { get; set; } = string.Empty;
-
-    /// <summary>
-    /// 语言标识：简体中文=2052，繁体中文=3076，英文=1033
-    /// </summary>
-    public int LcId { get; set; } = 2052;
-
-    /// <summary>
-    /// 请求超时（秒）
-    /// </summary>
+    public bool Enable { get; set; }
+    public string ServerUrl { get; set; } = "";       // e.g. http://kd-server/
+    public string DbId { get; set; } = "";            // 账套 ID
+    public string UserName { get; set; } = "";        // 用户名
+    public string Password { get; set; } = "";        // 密码
+    public int LcId { get; set; } = 2052;             // 语言 ID（中文 2052）
     public int TimeoutSeconds { get; set; } = 30;
+    public string ImageServerUrl { get; set; } = "";  // 可选：图片附件服务器
+    public string MaterialFormId { get; set; } = "BD_MATERIAL"; // 物料表单 ID
+}
 
-    /// <summary>
-    /// 图片服务器前缀（用于拼接附件URL），如与 ServerUrl 相同可留空
-    /// </summary>
-    public string? ImageServerUrl { get; set; }
+/// <summary>字段映射条目</summary>
+public class FieldMappingItem
+{
+    /// <summary>前端字段 Key（匹配 Material 的属性名，大小写不敏感）</summary>
+    public string FieldKey { get; set; } = "";
+    /// <summary>展示名（管理后台可见）</summary>
+    public string Label { get; set; } = "";
+    /// <summary>金蝶侧字段名，多个用英文逗号分隔</summary>
+    public string KingdeeField { get; set; } = "";
+    /// <summary>是否启用该字段</summary>
+    public bool Enabled { get; set; } = true;
+    /// <summary>备注说明</summary>
+    public string? Remark { get; set; }
+}
+
+/// <summary>企业微信配置</summary>
+public class WeComSettings
+{
+    public bool Enable { get; set; }
+    public string CorpId { get; set; } = "";          // 企业 ID
+    public string AgentId { get; set; } = "";         // 应用 AgentId
+    public string Secret { get; set; } = "";          // 应用 Secret
+    public string CallbackUrl { get; set; } = "";     // https://域名/api/auth
+    public string JwtSecret { get; set; } = "";       // 自制 Token 签名密钥（>=16 字符）
+    public int JwtExpireHours { get; set; } = 24;
+    public bool ForceWeComLogin { get; set; } = true; // 是否强制走企业微信
+}
+
+/// <summary>应用根配置（映射到 app_data/config.json）</summary>
+public class AppConfig
+{
+    public KingdeeSettings Kingdee { get; set; } = new();
+    public List<FieldMappingItem> FieldMappings { get; set; } = new();
+    public WeComSettings WeCom { get; set; } = new();
+    public string AdminPassword { get; set; } = "admin123";
 }

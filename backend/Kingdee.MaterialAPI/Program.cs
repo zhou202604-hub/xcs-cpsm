@@ -10,8 +10,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<KingdeeSettings>(builder.Configuration.GetSection("KingdeeSettings"));
 builder.Services.Configure<WeComSettings>(builder.Configuration.GetSection("WeComSettings"));
 
-// ========= 单例/作用域服务 =========
-builder.Services.AddControllers();
+// ========= 业务服务 =========
+builder.Services.AddControllers()
+    .AddJsonOptions(opts =>
+    {
+        opts.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        opts.JsonSerializerOptions.DictionaryKeyPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+        opts.JsonSerializerOptions.DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -152,10 +158,10 @@ app.MapGet("/api/health", (AppConfigStore cfgStore) =>
     var cfg = cfgStore.Get();
     return new
     {
-        Status = "OK",
-        Mode = cfg.KingdeeEnable ? "Kingdee" : "Mock",
-        WeCom = cfg.WeComEnable ? "Enabled" : "Disabled",
-        Time = DateTime.Now
+        status = "OK",
+        mode = cfg.Kingdee.Enable ? "Kingdee" : "Mock",
+        weCom = cfg.WeCom.Enable ? "Enabled" : "Disabled",
+        time = DateTime.Now
     };
 });
 
@@ -164,10 +170,10 @@ app.MapGet("/api/config", (AppConfigStore cfgStore) =>
     var cfg = cfgStore.Get();
     return new
     {
-        Mode = cfg.KingdeeEnable ? "Kingdee" : "Mock",
-        FormId = cfg.KingdeeMaterialFormId,
-        FieldMappings = cfg.FieldMappings.Where(f => f.Enabled).ToList(),
-        WeComConfigured = cfg.WeComEnable && !string.IsNullOrWhiteSpace(cfg.WeComCorpId)
+        mode = cfg.Kingdee.Enable ? "Kingdee" : "Mock",
+        formId = cfg.Kingdee.MaterialFormId,
+        fieldMappings = cfg.FieldMappings.Where(f => f.Enabled).ToList(),
+        weComConfigured = cfg.WeCom.Enable && !string.IsNullOrWhiteSpace(cfg.WeCom.CorpId)
     };
 });
 

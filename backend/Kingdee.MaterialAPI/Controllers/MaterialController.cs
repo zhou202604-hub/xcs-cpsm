@@ -1,66 +1,44 @@
-using Microsoft.AspNetCore.Mvc;
 using Kingdee.MaterialAPI.Models;
 using Kingdee.MaterialAPI.Services;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 
 namespace Kingdee.MaterialAPI.Controllers;
 
 /// <summary>
-/// 物料查询控制器
+/// 物料相关 API —— 移动端页面调用
 /// </summary>
 [ApiController]
 [Route("api/[controller]")]
 public class MaterialController : ControllerBase
 {
-    private readonly IMaterialService _materialService;
+    private readonly IMaterialService _svc;
+    private readonly ILogger<MaterialController> _logger;
 
-    public MaterialController(IMaterialService materialService)
+    public MaterialController(IMaterialService svc, ILogger<MaterialController> logger)
     {
-        _materialService = materialService;
+        _svc = svc;
+        _logger = logger;
     }
 
-    /// <summary>
-    /// 查询物料列表
-    /// </summary>
-    /// <param name="keyword">搜索关键词（物料名称/通用名/规格型号/登记证号/产品经理）</param>
-    /// <param name="level">物料等级筛选（一级/二级/三级）</param>
-    /// <param name="pageIndex">页码，默认1</param>
-    /// <param name="pageSize">每页数量，默认20</param>
-    /// <returns>物料列表</returns>
     [HttpGet]
-    [ProducesResponseType(typeof(ApiResponse<List<Material>>), StatusCodes.Status200OK)]
-    public async Task<IActionResult> GetMaterials(
-        [FromQuery] string? keyword = null,
-        [FromQuery] string? level = null,
-        [FromQuery] int pageIndex = 1,
-        [FromQuery] int pageSize = 20)
+    public async Task<ApiResponse<List<Material>>> List([FromQuery] string keyword = "",
+        [FromQuery] string level = "", [FromQuery] int pageIndex = 1, [FromQuery] int pageSize = 50)
     {
-        var query = new MaterialQueryParams
+        _logger.LogInformation("查询物料：keyword={K}, level={L}", keyword, level);
+        var result = await _svc.QueryListAsync(new MaterialQueryParams
         {
             Keyword = keyword,
             Level = level,
             PageIndex = pageIndex,
             PageSize = pageSize
-        };
-
-        var result = await _materialService.GetMaterialsAsync(query);
-        return Ok(result);
+        });
+        return result;
     }
 
-    /// <summary>
-    /// 根据ID获取物料详情
-    /// </summary>
-    /// <param name="id">物料编号</param>
-    /// <returns>物料详细信息</returns>
     [HttpGet("{id}")]
-    [ProducesResponseType(typeof(ApiResponse<Material>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> GetMaterialById(string id)
+    public async Task<ApiResponse<Material>> Get(string id)
     {
-        var result = await _materialService.GetMaterialByIdAsync(id);
-        if (!result.Success)
-        {
-            return NotFound(result);
-        }
-        return Ok(result);
+        return await _svc.GetByIdAsync(id);
     }
 }

@@ -1,191 +1,176 @@
 using System.Text.Json;
 using Kingdee.MaterialAPI.Models;
-using Kingdee.MaterialAPI.Services;
 
-namespace Kingdee.MaterialAPI;
+namespace Kingdee.MaterialAPI.Services;
 
 /// <summary>
-/// 把金蝶 API 返回的数据 → Material 模型
-/// 字段映射完全来自 AppConfig.FieldMappings
+/// 把金蝶返回的数据 —— 字段名与 Material 的展示字段对应
+/// 字段映射来源：AppConfig.FieldMappings
 /// </summary>
 public class KingdeeMaterialMapper
 {
-    private readonly AppConfigStore _configStore;
+    private readonly AppConfigStore _config;
+    private readonly ILogger<KingdeeMaterialMapper> _logger;
 
-    public KingdeeMaterialMapper(AppConfigStore configStore)
+    public KingdeeMaterialMapper(AppConfigStore config, ILogger<KingdeeMaterialMapper> logger)
     {
-        _configStore = configStore;
+        _config = config;
+        _logger = logger;
     }
 
-    /// <summary>构建 executeBillQuery 要查询的 SELECT 字段（逗号分隔） —— 按字段映射的 KingdeeField 生成</summary>
+    /// <summary>构建 SELECT 列表（FMATERIALID,FNUMBER + 所有启用字段）</summary>
     public string BuildSelectFields()
     {
-        var cfg = _configStore.Get();
-        var fields = new List<string>();
-        // 物料主键 ID（必须要，用于取详情）
-        fields.Add("FMATERIALID");
-        // 物料编码（作为物料编号展示）
-        fields.Add("FNUMBER");
-        foreach (var m in cfg.FieldMappings.Where(x => x.Enabled && x.FieldKey != "images"))
+        var cfg = _config.Get();
+        var list = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            if (string.IsNullOrWhiteSpace(m.KingdeeField)) continue;
-            foreach (var f in m.KingdeeField.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            "FMATERIALID",
+            "FNUMBER"
+        };
+        foreach (var fm in cfg.FieldMappings.Where(x => x.Enabled))
+        {
+            if (string.IsNullOrWhiteSpace(fm.KingdeeField)) continue;
+            // images 字段不参与 executeBillQuery（附件通常需要 View 获取）
+            if (fm.FieldKey.Equals("images", StringComparison.OrdinalIgnoreCase)) continue;
+
+            foreach (var k in fm.KingdeeField.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
-                var k = f.Trim();
-                if (!fields.Contains(k, StringComparer.OrdinalIgnoreCase))
-                    fields.Add(k);
+                var f = k.Trim();
+                if (!string.IsNullOrWhiteSpace(f)) list.Add(f);
             }
         }
-        return string.Join(",", fields);
+        return string.Join(",", list);
     }
 
-    /// <summary>把 executeBillQuery 返回的一行 → Material（只填充列表字段）</summary>
-    public Material FromRow(object[] row)
+    /// <summary>
+    /// 从 executeBillQuery 返回的二维数组某一行构建 Material 对象
+    /// </summary>
+    public Material FromRow(object[] row, string[] selectFields)
     {
-        var cfg = _configStore.Get();
-        var selectFields = BuildSelectFields().Split(',');
+        var cfg = _config.Get();
         var mat = new Material();
 
-        // row[0] 通常是 FMATERIALID（主键），row[1] 是 FNUMBER
-        if (row.Length > 0) mat.MaterialId = Obj<string>(row[0]);
-        if (row.Length > 1) mat.Number = Obj<string>(row[1]);
+        // 1) 前两列固定为 FMATERIALID, FNUMBER
+        if (row.Length > 0) mat.MaterialId = row[0]?.ToString() ?? "";
+        if (row.Length > 1) mat.Number = row[1]?.ToString() ?? "";
 
-        // 从 row[2] 起按 selectFields 的顺序与 FieldMappings 对应
-        // 但为了避免顺序不一致，这里简单地做"名字→索引"查找
-        for (int i = 0; i < selectFields.Length && i < row.Length; i++)
+        // 2) 其余列按 selectFields 的名字与字段映射匹配
+        for (int i = 2; i < Math.Min(selectFields.Length, row.Length); i++)
         {
             var fieldName = selectFields[i].Trim();
-            var value = row[i];
-
-            // 匹配每一条字段映射
-            foreach (var mp in cfg.FieldMappings)
-            {
-                if (!mp.Enabled) continue;
-                if (string.IsNullOrWhiteSpace(mp.KingdeeField)) continue;
-                var keys = mp.KingdeeField.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(k => k.Trim());
-                if (keys.Any(k => string.Equals(k, fieldName, StringComparison.OrdinalIgnoreCase)))
-                {
-                    SetByFieldKey(mat, mp.FieldKey, value?.ToString() ?? "");
-                }
-            }
+            var value = row[i]?.ToString() ?? "";
+            MatchAndAssign(mat, fieldName, value, cfg.FieldMappings);
         }
-        // 兜底：没有物料名的话用编号
-        if (string.IsNullOrWhiteSpace(mat.MaterialName))
-            mat.MaterialName = mat.Number;
+
+        // 兜底
+        if (string.IsNullOrWhiteSpace(mat.MaterialName)) mat.MaterialName = mat.Number;
         return mat;
     }
 
-    /// <summary>从 View 返回的单据详情填充图片 URL（或其他详情字段）</summary>
-    public void EnrichFromView(Material mat, JsonDocument viewResult)
+    /// <summary>从 View 返回的单据详情里抓取图片 URL 列表</summary>
+    public List<string> ExtractImageUrls(JsonDocument? viewDoc, string pkValue)
     {
-        var cfg = _configStore.Get();
-        var imageFields = cfg.FieldMappings
-            .FirstOrDefault(f => f.FieldKey.Equals("images", StringComparison.OrdinalIgnoreCase));
-        if (imageFields == null || string.IsNullOrWhiteSpace(imageFields.KingdeeField)) return;
+        var cfg = _config.Get();
+        var imagesMapping = cfg.FieldMappings.FirstOrDefault(
+            f => f.FieldKey.Equals("images", StringComparison.OrdinalIgnoreCase));
+        var list = new List<string>();
+        if (imagesMapping == null || string.IsNullOrWhiteSpace(imagesMapping.KingdeeField) || viewDoc == null) return list;
 
-        var candidates = imageFields.KingdeeField
-            .Split(',', StringSplitOptions.RemoveEmptyEntries).Select(k => k.Trim()).ToList();
+        var candidateFields = imagesMapping.KingdeeField
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .ToList();
 
-        var urls = new List<string>();
-        void Collect(JsonElement el)
+        // 在整个 JSON 中递归寻找字段名命中的属性值
+        CollectStringValues(viewDoc.RootElement, candidateFields, list);
+
+        // 对形如 "fileid=xxx" 或简单图片文件名的字段，拼接 ImageServerUrl
+        var imgServer = (cfg.Kingdee.ImageServerUrl ?? "").TrimEnd('/');
+        for (int i = 0; i < list.Count; i++)
         {
-            if (el.ValueKind == JsonValueKind.Object)
+            var v = list[i];
+            if (v.StartsWith("http", StringComparison.OrdinalIgnoreCase)) continue;
+            if (!string.IsNullOrWhiteSpace(imgServer))
             {
-                foreach (var p in el.EnumerateObject())
-                {
-                    // 候选字段命中
-                    if (candidates.Contains(p.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        ExtractUrls(p.Value, urls, cfg);
-                    }
-                    else
-                    {
-                        Collect(p.Value);
-                    }
-                }
-            }
-            else if (el.ValueKind == JsonValueKind.Array)
-            {
-                foreach (var child in el.EnumerateArray())
-                    Collect(child);
+                list[i] = $"{imgServer}/fileserver/downloadImage/?fileid={Uri.EscapeDataString(v)}";
             }
         }
-
-        Collect(viewResult.RootElement);
-        mat.Images = urls;
+        return list.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    private static void ExtractUrls(JsonElement val, List<string> urls, AppConfig cfg)
+    private static void MatchAndAssign(Material mat, string kingdeeField, string value, List<FieldMappingItem> mappings)
     {
-        // 简单提取：字符串且看起来像 URL / 文件名
-        if (val.ValueKind == JsonValueKind.String)
+        foreach (var fm in mappings.Where(m => m.Enabled && !string.IsNullOrWhiteSpace(m.KingdeeField)))
         {
-            var s = val.GetString() ?? "";
-            if (string.IsNullOrWhiteSpace(s)) return;
-            if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+            var fields = fm.KingdeeField.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim());
+            if (fields.Any(f => f.Equals(kingdeeField, StringComparison.OrdinalIgnoreCase)))
             {
-                urls.Add(s);
+                SetMaterialProperty(mat, fm.FieldKey, value);
                 return;
             }
-            // 可能是金蝶附件相对路径或 fileid
-            if (!string.IsNullOrWhiteSpace(cfg.KingdeeImageServerUrl) &&
-                (s.Contains("/") || s.Contains("\\") || s.Length > 4))
-            {
-                urls.Add($"{cfg.KingdeeImageServerUrl.TrimEnd('/')}/fileserver/downloadImage/?fileid={Uri.EscapeDataString(s)}");
-            }
-        }
-        else if (val.ValueKind == JsonValueKind.Object)
-        {
-            foreach (var p in val.EnumerateObject())
-            {
-                if (p.Value.ValueKind == JsonValueKind.String)
-                {
-                    var s = p.Value.GetString() ?? "";
-                    if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-                        urls.Add(s);
-                    else if (!string.IsNullOrWhiteSpace(s) && !string.IsNullOrWhiteSpace(cfg.KingdeeImageServerUrl))
-                        urls.Add($"{cfg.KingdeeImageServerUrl.TrimEnd('/')}/fileserver/downloadImage/?fileid={Uri.EscapeDataString(s)}");
-                }
-            }
-        }
-        else if (val.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var c in val.EnumerateArray())
-                ExtractUrls(c, urls, cfg);
         }
     }
 
-    /// <summary>根据 FieldKey 写入 Material 的对应属性（通过反射兜底）</summary>
-    private static void SetByFieldKey(Material mat, string fieldKey, string value)
+    private static void SetMaterialProperty(Material mat, string fieldKey, string value)
     {
-        if (string.IsNullOrWhiteSpace(fieldKey)) return;
+        // 大小写不敏感地找属性
         var prop = typeof(Material).GetProperty(
-            System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(fieldKey.ToLower())
-            );
-        if (prop == null)
+            fieldKey,
+            System.Reflection.BindingFlags.IgnoreCase |
+            System.Reflection.BindingFlags.Public |
+            System.Reflection.BindingFlags.Instance);
+        if (prop != null && prop.CanWrite)
         {
-            // 也尝试直接匹配大小写
-            prop = typeof(Material).GetProperty(fieldKey);
+            try
+            {
+                prop.SetValue(mat, value);
+                return;
+            }
+            catch
+            {
+                // 忽略类型转换失败
+            }
         }
-        if (prop == null || !prop.CanWrite)
-        {
-            // 写不到属性，丢进 Extra 字典
-            mat.Extra[fieldKey] = value;
-            return;
-        }
-        try
-        {
-            prop.SetValue(mat, value);
-        }
-        catch
-        {
-            // 忽略类型转换错误
-        }
+        // 找不到对应属性的，扔进 Extra
+        mat.Extra[fieldKey] = value;
     }
 
-    private static T? Obj<T>(object o)
+    private static void CollectStringValues(JsonElement el, List<string> candidateFields, List<string> result)
     {
-        try { return (T?)Convert.ChangeType(o, typeof(T)); }
-        catch { return default; }
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var p in el.EnumerateObject())
+                {
+                    // 如果属性名匹配了候选字段名，且是字符串/数组形式，收集
+                    if (candidateFields.Contains(p.Name, StringComparer.OrdinalIgnoreCase) ||
+                        candidateFields.Any(f => p.Name.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0))
+                    {
+                        if (p.Value.ValueKind == JsonValueKind.String)
+                        {
+                            var s = p.Value.GetString() ?? "";
+                            if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                        }
+                        else if (p.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var item in p.Value.EnumerateArray())
+                            {
+                                if (item.ValueKind == JsonValueKind.String)
+                                {
+                                    var s = item.GetString() ?? "";
+                                    if (!string.IsNullOrWhiteSpace(s)) result.Add(s);
+                                }
+                            }
+                        }
+                    }
+                    // 继续递归，以便附件可能藏在更深层级
+                    CollectStringValues(p.Value, candidateFields, result);
+                }
+                break;
+            case JsonValueKind.Array:
+                foreach (var c in el.EnumerateArray())
+                    CollectStringValues(c, candidateFields, result);
+                break;
+        }
     }
 }
