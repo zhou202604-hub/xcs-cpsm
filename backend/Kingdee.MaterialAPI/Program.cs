@@ -86,7 +86,7 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// 前端页面（移动端）：托管 /frontend
+// 前端页面（移动端）：托管 /frontend → /
 var frontendPath = Path.Combine(
     Directory.GetCurrentDirectory().EndsWith(Path.Combine("backend", "Kingdee.MaterialAPI"))
         ? Path.Combine("..", "..", "frontend")
@@ -104,9 +104,14 @@ if (Directory.Exists(fullFrontendPath))
         FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(fullFrontendPath),
         DefaultFileNames = new[] { "index.html" }
     });
+    Console.WriteLine("[INFO] 移动端静态目录: " + fullFrontendPath);
+}
+else
+{
+    Console.WriteLine("[WARN] 移动端静态目录不存在: " + fullFrontendPath);
 }
 
-// PC 管理后台：托管 /admin 目录，访问地址 /admin/index.html
+// PC 管理后台：托管 /admin 目录 → /admin/*
 var adminPath = Path.Combine(
     Directory.GetCurrentDirectory().EndsWith(Path.Combine("backend", "Kingdee.MaterialAPI"))
         ? Path.Combine("..", "..", "admin")
@@ -114,11 +119,25 @@ var adminPath = Path.Combine(
 var fullAdminPath = Path.GetFullPath(adminPath);
 if (Directory.Exists(fullAdminPath))
 {
-    app.UseStaticFiles(new StaticFileOptions
+    // 给 /admin 单独注册一套默认文件（/admin → /admin/index.html）
+    app.Map("/admin", adminApp =>
     {
-        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(fullAdminPath),
-        RequestPath = "/admin"
+        adminApp.UseDefaultFiles(new DefaultFilesOptions
+        {
+            FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(fullAdminPath),
+            DefaultFileNames = new[] { "index.html" }
+        });
+        adminApp.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(fullAdminPath),
+            RequestPath = ""
+        });
     });
+    Console.WriteLine("[INFO] 管理后台静态目录: " + fullAdminPath);
+}
+else
+{
+    Console.WriteLine("[WARN] 管理后台静态目录不存在: " + fullAdminPath);
 }
 
 app.UseCors("AllowAll");
@@ -152,14 +171,17 @@ app.MapGet("/api/config", (AppConfigStore cfgStore) =>
     };
 });
 
-// 深链路由兜底（企业微信里直接 https://域名/ 访问）
+// 深链路由兜底（企业微信里直接 https://域名/ 访问 或 /admin 子路径）
 app.MapFallback(context =>
 {
     if (context.Request.Method != HttpMethods.Get) return Task.CompletedTask;
     var path = context.Request.Path.ToString();
-    var file = path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase)
-        ? Path.Combine(fullAdminPath, "index.html")
-        : Path.Combine(fullFrontendPath, "index.html");
+    // /admin 及其子路径由 admin map pipeline 处理，命中失败时再回到这里兜底
+    string file;
+    if (path.StartsWith("/admin", StringComparison.OrdinalIgnoreCase))
+        file = Path.Combine(fullAdminPath, "index.html");
+    else
+        file = Path.Combine(fullFrontendPath, "index.html");
     if (!File.Exists(file)) return Task.CompletedTask;
     context.Response.ContentType = "text/html; charset=utf-8";
     return context.Response.SendFileAsync(file);
