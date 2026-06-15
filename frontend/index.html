@@ -18,7 +18,7 @@
             <button class="icon-btn" id="refreshBtn" onclick="loadMaterials()">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M1 4v6h6"></path>
-                    <path d="M23 20v-6h-6"></path>
+                    <path d="m23 20v-6h-6"></path>
                     <path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10"></path>
                     <path d="M3.51 15a9 9 0 0 0 14.85 3.36L23 14"></path>
                 </svg>
@@ -32,7 +32,7 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <path d="m21 21-4.3-4.3"></path>
             </svg>
-            <input type="text" id="searchInput" placeholder="输入物料名称/通用名/规格型号搜索..." oninput="searchMaterials()">
+            <input type="text" id="searchInput" placeholder="输入物料名称/通用名/规格型号搜索..." oninput="onSearchInput()">
             <button class="clear-btn" id="clearBtn" onclick="clearSearch()" style="display:none;">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"></circle>
@@ -64,6 +64,15 @@
             <div class="spinner"></div>
             <p>加载中...</p>
         </div>
+        <div id="errorState" class="empty-state" style="display:none;">
+            <svg viewBox="0 0 24 24" width="64" height="64" fill="none" stroke="currentColor" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"></circle>
+                <path d="M12 8v4"></path>
+                <path d="M12 16h.01"></path>
+            </svg>
+            <p class="empty-text" id="errorTitle">连接失败</p>
+            <p class="empty-hint" id="errorMessage">请检查后端服务是否正常启动</p>
+        </div>
     </main>
 
     <div class="material-detail-modal" id="detailModal">
@@ -77,14 +86,40 @@
                     </svg>
                 </button>
             </div>
-            <div class="detail-body" id="detailBody">
+            <div class="detail-body" id="detailBody"></div>
+        </div>
+    </div>
+
+    <div class="image-preview-modal" id="imagePreviewModal" onclick="closeImagePreview(event)">
+        <div class="image-preview-content">
+            <div class="image-preview-header">
+                <span id="imagePreviewCount">1 / 1</span>
+                <button class="image-preview-close" onclick="closeImagePreview()">
+                    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6 6 18"></path>
+                        <path d="m6 6 12 12"></path>
+                    </svg>
+                </button>
             </div>
+            <div class="image-preview-slider" id="imagePreviewSlider"></div>
+            <div class="image-preview-nav">
+                <button class="image-prev-btn" id="prevImageBtn" onclick="prevImage()">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="m15 18-6-6 6-6"></path>
+                    </svg>
+                </button>
+                <button class="image-next-btn" id="nextImageBtn" onclick="nextImage()">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="m9 18 6-6-6-6"></path>
+                    </svg>
+                </button>
+            </div>
+            <div class="image-preview-dots" id="imagePreviewDots"></div>
         </div>
     </div>
 
     <div class="bottom-safe"></div>
 
-    <script src="js/data.js"></script>
     <script src="js/app.js"></script>
 </body>
 </html>

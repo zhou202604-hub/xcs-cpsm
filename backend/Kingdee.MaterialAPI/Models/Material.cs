@@ -76,6 +76,11 @@ public class Material
     /// 产品信息
     /// </summary>
     public string ProductInfo { get; set; } = string.Empty;
+
+    /// <summary>
+    /// 物料图片列表（URL）
+    /// </summary>
+    public List<string>? Images { get; set; }
 }
 
 /// <summary>
